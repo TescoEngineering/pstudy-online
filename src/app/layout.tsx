@@ -14,7 +14,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen">{children}</body>
+      <body className="min-h-screen">
+        <div className="bg-amber-500 px-4 py-2 text-center text-sm font-medium text-amber-950">
+          PSTUDY Online is under construction. Features may change.
+        </div>
+        {children}
+      </body>
     </html>
   );
 }
