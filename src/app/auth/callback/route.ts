@@ -4,14 +4,13 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const token_hash = searchParams.get("token_hash");
-  const type = searchParams.get("type") as EmailOtpType | null;
-  const next = searchParams.get("next") ?? "/login";
+  const token_hash = searchParams.get("token_hash") ?? searchParams.get("token");
+  const type = (searchParams.get("type") as EmailOtpType | null) || "recovery";
 
-  if (token_hash && type) {
+  if (token_hash) {
     const supabase = await createClient();
     const { error } = await supabase.auth.verifyOtp({
-      type,
+      type: type as EmailOtpType,
       token_hash,
     });
     if (!error) {

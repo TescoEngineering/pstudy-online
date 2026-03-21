@@ -17,10 +17,17 @@ export default function LoginPage() {
   const [recoveryMode, setRecoveryMode] = useState(false);
 
   useEffect(() => {
-    const params = typeof window !== "undefined" ? window.location.search : "";
-    if (params.includes("recovery=1")) {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const tokenHash = params.get("token_hash") ?? params.get("token");
+    const type = params.get("type");
+    if (params.get("recovery") === "1") {
       setRecoveryMode(true);
       window.history.replaceState(null, "", "/login");
+      return;
+    }
+    if (tokenHash && (type === "recovery" || type === "email")) {
+      window.location.replace(`/auth/callback?token_hash=${encodeURIComponent(tokenHash)}&type=${type || "recovery"}`);
     }
   }, []);
 
