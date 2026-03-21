@@ -17,9 +17,10 @@ export default function LoginPage() {
   const [recoveryMode, setRecoveryMode] = useState(false);
 
   useEffect(() => {
-    const hash = typeof window !== "undefined" ? window.location.hash : "";
-    if (hash && hash.includes("type=recovery")) {
+    const params = typeof window !== "undefined" ? window.location.search : "";
+    if (params.includes("recovery=1")) {
       setRecoveryMode(true);
+      window.history.replaceState(null, "", "/login");
     }
   }, []);
 
@@ -33,7 +34,7 @@ export default function LoginPage() {
     try {
       if (forgotPassword) {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/login`,
+          redirectTo: `${window.location.origin}/auth/callback`,
         });
         if (error) throw error;
         setResetSent(true);
