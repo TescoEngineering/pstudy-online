@@ -1,0 +1,13 @@
+---
+description: PSTUDY primary workspace path - edit C drive only
+alwaysApply: true
+---
+
+# PSTUDY Workspace
+
+**Primary project path:** `C:\pstudy-web`
+
+When making edits to PSTUDY, always use `C:\pstudy-web` as the project root. This is where the user runs `npm run dev` and views the app at localhost.
+
+- Edit files under: `C:\pstudy-web\`
+- Do not edit `y:\PSTUDY\Cursor\pstudy-web\` unless the user explicitly asks to work on the Y drive copy.

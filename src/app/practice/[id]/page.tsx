@@ -1,22 +1,25 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Deck, PStudyItem } from "@/types/pstudy";
-
-const STORAGE_KEY = "pstudy-decks";
-
-function loadDecks(): Deck[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
-}
+import { createClient } from "@/lib/supabase/client";
+import { fetchDeck } from "@/lib/supabase/decks";
+import {
+  speak,
+  speakWithCallback,
+  stopSpeaking,
+  startListening,
+  isSpeechRecognitionSupported,
+} from "@/lib/speech";
+import { startCloudListening } from "@/lib/speech-cloud";
+import { SPEECH_LANGUAGES } from "@/lib/speech-languages";
+import {
+  getExplanationWords,
+  buildFlashcardDisplay,
+  fillFromTranscript,
+} from "@/lib/flashcard";
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -27,12 +30,20 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
+function normalizeAnswer(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[.,;:!?]+$/g, ""); // Strip trailing punctuation (speech recognition often adds periods)
+}
+
 export default function PracticePage() {
   const params = useParams();
   const router = useRouter();
   const id = params.id as string;
   const [deck, setDeck] = useState<Deck | null>(null);
-  const [mode, setMode] = useState<"straight" | "multiple-choice">("straight");
+  const [mode, setMode] = useState<"straight" | "multiple-choice" | "flashcard">("straight");
   const [promptMode, setPromptMode] = useState<"description" | "explanation">(
     "description"
   );
@@ -47,26 +58,225 @@ export default function PracticePage() {
   const [repeatMistakesMode, setRepeatMistakesMode] = useState(false);
   const [wrongItems, setWrongItems] = useState<PStudyItem[]>([]);
   const [originalTotal, setOriginalTotal] = useState(0);
+  const [listenMode, setListenMode] = useState(false);
+  const [speakMode, setSpeakMode] = useState(false);
+  const [speechLang, setSpeechLang] = useState("en");
+  const [vocabularyBias, setVocabularyBias] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [flashcardFilled, setFlashcardFilled] = useState<(string | null)[]>([]);
+  const [flashcardRevealed, setFlashcardRevealed] = useState(false);
+  const stopListeningRef = useRef<(() => void) | null>(null);
+  const answerRef = useRef(answer);
+  answerRef.current = answer;
+  const lastSpokenForRef = useRef<string | null>(null);
+  const speakModeRef = useRef(speakMode);
+  const showResultRef = useRef(showResult);
+  const modeRef = useRef(mode);
+  const questionTextRef = useRef("");
+  speakModeRef.current = speakMode;
+  showResultRef.current = showResult;
+  modeRef.current = mode;
 
   useEffect(() => {
-    const decks = loadDecks();
-    const d = decks.find((x) => x.id === id) ?? null;
-    setDeck(d);
-    if (d && d.items.length > 0) {
-      const ordered =
-        order === "random" ? shuffle(d.items) : [...d.items];
-      setList(ordered);
-      setIndex(0);
-      setAnswer("");
-      setShowResult(false);
-      setRepeatMistakesMode(false);
-      setWrongItems([]);
-      setOriginalTotal(ordered.length);
+    async function load() {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+      const d = await fetchDeck(id);
+      setDeck(d ?? null);
+      if (d && d.items.length > 0) {
+        const ordered =
+          order === "random" ? shuffle(d.items) : [...d.items];
+        setList(ordered);
+        setIndex(0);
+        setAnswer("");
+        setShowResult(false);
+        setRepeatMistakesMode(false);
+        setWrongItems([]);
+        setOriginalTotal(ordered.length);
+      }
     }
-  }, [id, order]);
+    load();
+  }, [id, order, router]);
 
   const current = list[index];
   const total = list.length;
+
+  useEffect(() => {
+    return () => {
+      stopSpeaking();
+      stopListeningRef.current?.();
+    };
+  }, [current]);
+
+  // Initialize flashcard state when item changes
+  useEffect(() => {
+    if (mode === "flashcard" && current) {
+      const explanation = String(current.explanation ?? "").trim();
+      const words = getExplanationWords(explanation);
+      setFlashcardFilled(words.map(() => null));
+      setFlashcardRevealed(false);
+    }
+  }, [current?.id, mode]);
+
+  // Stop listening when result shown, speak off, or flashcard revealed
+  useEffect(() => {
+    if (
+      showResult ||
+      !speakMode ||
+      (mode !== "straight" && mode !== "flashcard") ||
+      (mode === "flashcard" && flashcardRevealed)
+    ) {
+      stopListeningRef.current?.();
+      setIsListening(false);
+      stopListeningRef.current = null;
+    }
+  }, [showResult, speakMode, mode, flashcardRevealed]);
+
+  const flashcardFilledRef = useRef(flashcardFilled);
+  flashcardFilledRef.current = flashcardFilled;
+
+  const startSpeakListening = useCallback(async () => {
+    const isFlashcard = mode === "flashcard";
+    if (
+      (mode !== "straight" && !isFlashcard) ||
+      !speakMode ||
+      showResult ||
+      (isFlashcard && flashcardRevealed)
+    )
+      return;
+    if (!isSpeechRecognitionSupported()) return;
+    stopListeningRef.current?.();
+    setIsListening(true);
+
+    const vocabulary = isFlashcard
+      ? [...new Set(getExplanationWords(String(current?.explanation ?? "")))]
+      : vocabularyBias
+        ? [...new Set(list.map((it) => String(promptMode === "description" ? it.description : it.explanation ?? "").trim()).filter(Boolean))]
+        : undefined;
+
+    const handleResult = (transcript: string, isFinal: boolean) => {
+      if (!isFinal || !transcript.trim()) return;
+      if (isFlashcard) {
+        const words = getExplanationWords(String(current?.explanation ?? ""));
+        const prev = flashcardFilledRef.current;
+        const next = fillFromTranscript(transcript.trim(), words, prev);
+        setFlashcardFilled(next);
+        return;
+      }
+      let newTranscript = transcript.trim();
+      const q = questionTextRef.current.trim();
+      if (q) {
+        for (let i = q.length; i >= 1; i--) {
+          const prefix = q.slice(0, i);
+          if (newTranscript.toLowerCase().startsWith(prefix.toLowerCase())) {
+            newTranscript = newTranscript.slice(i).trim();
+            break;
+          }
+        }
+      }
+      if (!newTranscript) return;
+      const currentAnswer = answerRef.current.trim();
+      if (currentAnswer === "" || newTranscript === currentAnswer) {
+        setAnswer(newTranscript);
+      } else if (newTranscript.startsWith(currentAnswer) && newTranscript.length > currentAnswer.length) {
+        const occurrences = currentAnswer ? newTranscript.split(currentAnswer).length - 1 : 0;
+        if (occurrences <= 1) {
+          setAnswer(newTranscript);
+        } else {
+          const lastIdx = newTranscript.lastIndexOf(currentAnswer);
+          if (lastIdx !== -1) {
+            const newPart = newTranscript.slice(lastIdx + currentAnswer.length).trim();
+            if (newPart) {
+              setAnswer((currentAnswer + " " + newPart).trim());
+            }
+          }
+        }
+      } else {
+        setAnswer((prev) => (prev ? `${prev} ${newTranscript}` : newTranscript).trim());
+      }
+    };
+
+    const handleError = (msg: string) => {
+      alert(msg);
+      setIsListening(false);
+      stopListeningRef.current = null;
+    };
+
+    const handleEnd = () => {
+      if (
+        speakModeRef.current &&
+        !showResultRef.current &&
+        (modeRef.current === "straight" || modeRef.current === "flashcard")
+      ) {
+        startSpeakListening();
+      }
+    };
+
+    let stop: (() => void) | null = null;
+    const useVocabulary = isFlashcard || vocabularyBias;
+
+    if (useVocabulary && vocabulary?.length) {
+      try {
+        const r = await fetch("/api/speech-to-text/status");
+        const d = (await r.json()) as { available?: boolean };
+        if (d?.available) {
+          stop = startCloudListening({
+            lang: speechLang,
+            vocabulary,
+            onResult: handleResult,
+            onError: handleError,
+            onEnd: handleEnd,
+          });
+        }
+      } catch {
+        // Fall through to Web Speech API
+      }
+    }
+
+    if (!stop) {
+      stop = startListening({
+        lang: speechLang,
+        vocabulary: vocabulary?.length ? vocabulary : undefined,
+        vocabularyOnly: useVocabulary,
+        continuous: true,
+        onResult: handleResult,
+        onError: handleError,
+        onEnd: handleEnd,
+      });
+    }
+
+    if (!stop) {
+      setIsListening(false);
+      stopListeningRef.current = null;
+    } else {
+      stopListeningRef.current = stop;
+    }
+  }, [mode, speakMode, showResult, speechLang, vocabularyBias, list, promptMode, current, flashcardRevealed]);
+
+  // When item loads: if listenMode, speak the question (only once per item). If speakMode (and straight/flashcard), start listening after TTS ends.
+  useEffect(() => {
+    if (!current) return;
+    // When instruction is not blank, it is the question; otherwise use explanation or description per promptMode
+    const questionText = (current.instruction?.trim() || (promptMode === "description" ? current.explanation : current.description) || "").trim();
+    questionTextRef.current = questionText;
+
+    if (showResult || (mode === "flashcard" && flashcardRevealed)) return;
+
+    // Only speak when we've moved to a new item, not when user just toggles Speak
+    const isNewItem = lastSpokenForRef.current !== current.id;
+    if (listenMode && questionText && isNewItem) {
+      lastSpokenForRef.current = current.id;
+      speakWithCallback(questionText, () => {
+        setTimeout(startSpeakListening, 300);
+      }, speechLang);
+    } else {
+      startSpeakListening();
+    }
+  }, [current, listenMode, speakMode, mode, promptMode, showResult, flashcardRevealed, startSpeakListening, speechLang]);
 
   useEffect(() => {
     if (!current || mode !== "multiple-choice") return;
@@ -80,22 +290,18 @@ export default function PracticePage() {
       current.multiplechoice3,
       current.multiplechoice4,
     ]
-      .filter(Boolean)
+      .filter((s) => String(s ?? "").trim() !== "")
       .filter((v, i, a) => a.indexOf(v) === i);
     setMcOptions(shuffle(choices));
   }, [current, mode, promptMode]);
 
   const checkAnswer = useCallback(
     (userAnswer: string) => {
-      const normalized = (s: string) =>
-        s
-          .trim()
-          .toLowerCase()
-          .replace(/\s+/g, " ");
       const expected =
         promptMode === "description" ? current.description : current.explanation;
+      const expectedStr = String(expected ?? "").trim();
       const ok =
-        normalized(userAnswer) === normalized(expected);
+        normalizeAnswer(userAnswer) === normalizeAnswer(expected);
       if (ok) {
         setCorrect((c) => c + 1);
         if (repeatMistakesMode) {
@@ -124,8 +330,17 @@ export default function PracticePage() {
         }
       }
       setShowResult(true);
+
+      // When Listen is on, speak the evaluation feedback
+      if (listenMode && expectedStr) {
+        if (ok) {
+          speak(`Correct: ${expectedStr}`, speechLang);
+        } else {
+          speak(`Incorrect; the correct answer was ${expectedStr}`, speechLang);
+        }
+      }
     },
-    [current, promptMode, repeatMistakesMode, index, list.length, correct, wrong, originalTotal, total, id, router]
+    [current, promptMode, repeatMistakesMode, index, list.length, correct, wrong, originalTotal, total, id, router, listenMode, speechLang]
   );
 
   const goToResults = useCallback(() => {
@@ -133,8 +348,11 @@ export default function PracticePage() {
   }, [correct, wrong, originalTotal, total, id, router]);
 
   const next = useCallback(() => {
+    stopSpeaking();
     setAnswer("");
     setShowResult(false);
+    setFlashcardRevealed(false);
+    setFlashcardFilled([]);
     if (repeatMistakesMode) {
       return; // List/index already updated in checkAnswer
     }
@@ -152,18 +370,60 @@ export default function PracticePage() {
     setIndex((i) => i + 1);
   }, [index, total, repeatMistakesMode, wrongItems, goToResults]);
 
-  // When correction is shown, Enter advances to next item
+  const revealFlashcard = useCallback(() => {
+    stopListeningRef.current?.();
+    setIsListening(false);
+    stopListeningRef.current = null;
+    setFlashcardRevealed(true);
+  }, []);
+
+  function handleListenQuestion() {
+    const text = (current.instruction?.trim() || (promptMode === "description" ? current.explanation : current.description) || "").trim();
+    if (!text) return;
+    // Stop speech recognition so it doesn't pick up the TTS
+    stopListeningRef.current?.();
+    setIsListening(false);
+    stopListeningRef.current = null;
+    speakWithCallback(text.trim(), () => {
+      // Restart listening after TTS ends (if speak mode is on)
+      setTimeout(startSpeakListening, 300);
+    }, speechLang);
+  }
+
+  function handleListenAnswer() {
+    const text = promptMode === "description" ? current.description : current.explanation;
+    if (text?.trim()) speak(text.trim(), speechLang);
+  }
+
+  const handleEnterToCheck = useCallback(() => {
+    stopListeningRef.current?.();
+    setIsListening(false);
+    stopListeningRef.current = null;
+    checkAnswer(answerRef.current);
+  }, [checkAnswer]);
+
+  // Enter: when answering, check/reveal; when viewing result, go to next.
   useEffect(() => {
-    if (!showResult) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Enter" && !e.repeat) {
-        e.preventDefault();
+      if (e.key !== "Enter" || e.repeat) return;
+      e.preventDefault();
+      if (mode === "flashcard") {
+        if (flashcardRevealed) {
+          next();
+        } else {
+          revealFlashcard();
+        }
+        return;
+      }
+      if (showResult) {
         next();
+      } else if (mode === "straight") {
+        handleEnterToCheck();
       }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [showResult, next]);
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [showResult, next, mode, handleEnterToCheck, flashcardRevealed, revealFlashcard]);
 
   if (!deck) {
     return (
@@ -205,59 +465,98 @@ export default function PracticePage() {
       </header>
 
       <main className="mx-auto max-w-2xl px-4 py-8">
-        {index === 0 && (
-          <div className="mb-6 flex flex-wrap gap-4">
-            <label className="flex items-center gap-2">
-              <span className="text-sm text-stone-600">Ask for</span>
-              <select
-                value={promptMode}
-                onChange={(e) =>
-                  setPromptMode(e.target.value as "description" | "explanation")
-                }
-                className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-              >
-                <option value="description">Description</option>
-                <option value="explanation">Explanation</option>
-              </select>
-            </label>
-            <label className="flex items-center gap-2">
+        <div className="mb-6 flex flex-wrap gap-4">
+          {index === 0 && (
+            <>
+              <label className="flex items-center gap-2">
+                <span className="text-sm text-stone-600">Ask for</span>
+                <select
+                  value={promptMode}
+                  onChange={(e) =>
+                    setPromptMode(e.target.value as "description" | "explanation")
+                  }
+                  disabled={mode === "flashcard"}
+                  className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary disabled:bg-stone-100 disabled:text-stone-500"
+                >
+                  <option value="description">Description</option>
+                  <option value="explanation">Explanation</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-2">
+                <span className="text-sm text-stone-600">Answer type</span>
+                <select
+                  value={mode}
+                  onChange={(e) => {
+                    const v = e.target.value as "straight" | "multiple-choice" | "flashcard";
+                    setMode(v);
+                    if (v === "flashcard") setPromptMode("explanation");
+                  }}
+                  className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                >
+                  <option value="straight">Straight answer</option>
+                  <option value="multiple-choice">Multiple choice</option>
+                  <option value="flashcard">Flashcard (fill by speaking)</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-2">
+                <span className="text-sm text-stone-600">Order</span>
+                <select
+                  value={order}
+                  onChange={(e) => setOrder(e.target.value as "normal" | "random")}
+                  className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                >
+                  <option value="normal">Normal order</option>
+                  <option value="random">Random</option>
+                </select>
+              </label>
+            </>
+          )}
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              checked={listenMode}
+              onChange={(e) => setListenMode(e.target.checked)}
+              className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+            />
+            <span className="text-sm text-stone-600">Listen (auto-read question)</span>
+          </label>
+          {(mode === "straight" || mode === "flashcard") && isSpeechRecognitionSupported() && (
+            <label className="flex cursor-pointer items-center gap-2">
               <input
-                type="radio"
-                name="mode"
-                checked={mode === "straight"}
-                onChange={() => setMode("straight")}
+                type="checkbox"
+                checked={speakMode}
+                onChange={(e) => setSpeakMode(e.target.checked)}
+                className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
               />
-              Straight answer
+              <span className="text-sm text-stone-600">Speak (continuous until Enter)</span>
             </label>
-            <label className="flex items-center gap-2">
+          )}
+          {(mode === "straight" || mode === "flashcard") && speakMode && mode === "straight" && (
+            <label className="flex cursor-pointer items-center gap-2">
               <input
-                type="radio"
-                name="mode"
-                checked={mode === "multiple-choice"}
-                onChange={() => setMode("multiple-choice")}
+                type="checkbox"
+                checked={vocabularyBias}
+                onChange={(e) => setVocabularyBias(e.target.checked)}
+                className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
               />
-              Multiple choice
+              <span className="text-sm text-stone-600">Consider only deck answers</span>
             </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="order"
-                checked={order === "normal"}
-                onChange={() => setOrder("normal")}
-              />
-              Normal order
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="order"
-                checked={order === "random"}
-                onChange={() => setOrder("random")}
-              />
-              Random
-            </label>
-          </div>
-        )}
+          )}
+          <label className="flex items-center gap-2">
+            <span className="text-sm text-stone-600">Speech language:</span>
+            <select
+              value={speechLang}
+              onChange={(e) => setSpeechLang(e.target.value)}
+              className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+            >
+              {SPEECH_LANGUAGES.map(({ code, name }) => (
+                <option key={code} value={code}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
 
         {repeatMistakesMode && (
           <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
@@ -269,9 +568,19 @@ export default function PracticePage() {
           {current.instruction ? (
             <p className="text-sm text-stone-500">{current.instruction}</p>
           ) : null}
-          <h2 className="mt-2 text-xl font-semibold text-stone-900">
-            {promptMode === "description" ? current.explanation : current.description}
-          </h2>
+          <div className="mt-2 flex items-start justify-between gap-2">
+            <h2 className="flex-1 text-xl font-semibold text-stone-900">
+              {promptMode === "description" ? current.explanation : current.description}
+            </h2>
+            <button
+              type="button"
+              onClick={handleListenQuestion}
+              className="shrink-0 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-600 transition hover:border-pstudy-primary hover:text-pstudy-primary"
+              title="Listen to question"
+            >
+              Listen
+            </button>
+          </div>
           {current.picture_url && (
             <div className="mt-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -287,27 +596,92 @@ export default function PracticePage() {
         {!showResult ? (
           <>
             {mode === "straight" ? (
-              <input
-                type="text"
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    checkAnswer(answer);
-                  }
-                }}
-                placeholder="Your answer (press Enter to check)"
-                className="w-full rounded-lg border border-stone-300 px-4 py-3 text-lg focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary"
-                autoFocus
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={answer}
+                  onChange={(e) => {
+                    const newVal = e.target.value;
+                    setAnswer(newVal);
+                    if (speakMode && newVal === "" && stopListeningRef.current) {
+                      stopListeningRef.current();
+                      startSpeakListening();
+                    }
+                  }}
+                  placeholder="Your answer (press Enter to check)"
+                  className="flex-1 rounded-lg border border-stone-300 px-4 py-3 text-lg focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary"
+                  autoFocus
+                />
+                {speakMode && (
+                  <span
+                    className={`flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-sm ${
+                      isListening
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-stone-100 text-stone-500"
+                    }`}
+                    title={isListening ? "Listening... Press Enter to submit" : "Speak mode on"}
+                  >
+                    <span className="h-2 w-2 rounded-full bg-current" />
+                    {isListening ? "Listening" : "Speak on"}
+                  </span>
+                )}
+              </div>
+            ) : mode === "flashcard" ? (
+              <div className="space-y-4">
+                <div className="rounded-lg border-2 border-stone-200 bg-white p-4">
+                  <p className="whitespace-pre-wrap font-mono text-lg leading-relaxed text-stone-700">
+                    {flashcardRevealed
+                      ? current.explanation
+                      : buildFlashcardDisplay(
+                          getExplanationWords(String(current.explanation ?? "")),
+                          flashcardFilled
+                        )}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  {speakMode && !flashcardRevealed && (
+                    <span
+                      className={`flex items-center gap-1 rounded-lg px-3 py-2 text-sm ${
+                        isListening
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-stone-100 text-stone-500"
+                      }`}
+                      title={isListening ? "Listening... Speak words to fill in" : "Speak mode on"}
+                    >
+                      <span className="h-2 w-2 rounded-full bg-current" />
+                      {isListening ? "Listening" : "Speak on"}
+                    </span>
+                  )}
+                  {!flashcardRevealed ? (
+                    <button onClick={revealFlashcard} className="btn-primary">
+                      Reveal answer (Enter)
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleListenAnswer}
+                        className="rounded border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-600 transition hover:border-pstudy-primary hover:text-pstudy-primary"
+                        title="Listen to answer"
+                      >
+                        Listen
+                      </button>
+                      <button onClick={next} className="btn-primary">
+                        Next
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
             ) : (
               <div className="flex flex-col gap-2">
                 {mcOptions.map((opt) => (
                   <button
                     key={opt}
-                    onClick={() => checkAnswer(opt)}
+                    onClick={() => {
+                      setAnswer(opt);
+                      checkAnswer(opt);
+                    }}
                     className="rounded-lg border border-stone-300 bg-white px-4 py-3 text-left transition hover:border-pstudy-primary hover:bg-teal-50"
                   >
                     {opt}
@@ -318,30 +692,40 @@ export default function PracticePage() {
           </>
         ) : (
           <div className="space-y-4">
-            <div
-              className={`rounded-lg border-2 p-4 ${
-                answer.trim().toLowerCase() ===
-                (promptMode === "description" ? current.description : current.explanation)
-                  .trim()
-                  .toLowerCase()
+          <div
+            className={`rounded-lg border-2 p-4 ${
+                normalizeAnswer(answer) ===
+                normalizeAnswer(
+                  promptMode === "description" ? current.description : current.explanation
+                )
                   ? "border-green-500 bg-green-50"
                   : "border-red-400 bg-red-50"
               }`}
             >
               <p className="font-medium">
-                {answer.trim().toLowerCase() ===
-                (promptMode === "description" ? current.description : current.explanation)
-                  .trim()
-                  .toLowerCase()
+                {normalizeAnswer(answer) ===
+                normalizeAnswer(
+                  promptMode === "description" ? current.description : current.explanation
+                )
                   ? "Correct!"
                   : "Incorrect."}
               </p>
-              <p className="mt-1 text-stone-700">
-                Answer:{" "}
-                <strong>
-                  {promptMode === "description" ? current.description : current.explanation}
-                </strong>
-              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-stone-700">
+                <span>
+                  Answer:{" "}
+                  <strong>
+                    {promptMode === "description" ? current.description : current.explanation}
+                  </strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={handleListenAnswer}
+                  className="rounded border border-stone-300 bg-white px-2 py-0.5 text-xs text-stone-600 hover:border-pstudy-primary hover:text-pstudy-primary"
+                  title="Listen to answer"
+                >
+                  Listen
+                </button>
+              </div>
             </div>
             <button onClick={next} className="btn-primary">
               {repeatMistakesMode

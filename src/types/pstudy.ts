@@ -18,6 +18,12 @@ export interface Deck {
   items: PStudyItem[];
   createdAt: string;
   updatedAt: string;
+  isPublic?: boolean;
+  ownerId?: string; // Only set when fetched from community (for display)
+  /** Broad category for search (e.g. Geography, History, Science) */
+  fieldOfInterest?: string | null;
+  /** Specific sub-category (e.g. Europe, Middle Ages, French) */
+  topic?: string | null;
 }
 
 export type PracticeMode = "straight" | "multiple-choice";

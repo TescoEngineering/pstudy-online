@@ -2,7 +2,6 @@
  * PSTUDY desktop .txt format: tab-separated per line
  * description \t explanation \t mc1 \t mc2 \t mc3 \t mc4 \t picture \t instruction
  * First line "PSTUDYEXAMFILE" = exam file (we still import items after it, or skip).
- * Desktop may obfuscate strings with a simple reversible shuffle — we try to detect and reverse.
  */
 
 import { PStudyItem } from "@/types/pstudy";
@@ -92,40 +91,10 @@ function tryDecodeLegacyPictureToDataUrl(raw: string): { url: string; wasBase64:
   }
 }
 
-/** Reverses desktop stringObfuscate: alternating character unshuffle */
-function unObfuscate(s: string): string {
-  if (!s || s.length === 0) return s;
-  const len = s.length;
-  const remainder = len % 2;
-  const middle = Math.floor(len / 2);
-  let out = "";
-  for (let i = middle + remainder; i >= 1; i--) {
-    if (remainder === 0) {
-      out += s[i + middle - 1] ?? "";
-    }
-    out += s[i - 1] ?? "";
-    if (remainder === 1 && i !== 1) {
-      out += s[i + middle - 1] ?? "";
-    }
-  }
-  return out;
-}
-
-/** Heuristic: obfuscated text often has no spaces and looks scrambled */
-function looksObfuscated(s: string): boolean {
-  if (!s || s.length < 3) return false;
-  const hasSpace = /\s/.test(s);
-  const mostlyPrintable = /^[\x20-\x7E\u00A0-\u024F]+$/.test(s);
-  return !hasSpace && mostlyPrintable && s.length > 2;
-}
-
-function parseLine(line: string, tryUnObfuscate: boolean): string[] {
+function parseLine(line: string): string[] {
   const parts = line.split("\t");
   const out = [...parts];
   while (out.length < 8) out.push("");
-  if (tryUnObfuscate) {
-    return out.map((p) => (looksObfuscated(p) ? unObfuscate(p) : p));
-  }
   return out;
 }
 
@@ -135,14 +104,7 @@ export interface ImportResult {
   errors: string[];
 }
 
-export function parsePStudyTxt(
-  text: string,
-  options: { tryUnObfuscate?: boolean } = {}
-): ImportResult {
-  // IMPORTANT:
-  // Some normal strings (e.g. "Texas") can look like obfuscated strings under heuristics.
-  // So de-obfuscation is opt-in only.
-  const tryUnObfuscate = options.tryUnObfuscate === true;
+export function parsePStudyTxt(text: string): ImportResult {
   const errors: string[] = [];
   const items: PStudyItem[] = [];
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -156,7 +118,7 @@ export function parsePStudyTxt(
       wasExamFile = true;
       continue;
     }
-    const parts = parseLine(line, tryUnObfuscate);
+    const parts = parseLine(line);
     const [
       description,
       explanation,

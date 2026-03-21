@@ -17,6 +17,10 @@ yarn-error.log*
 # Local env
 .env
 .env.local
+
+# Google Cloud credentials (never commit)
+google-credentials.json
+google-*.json
 .env.development.local
 .env.test.local
 .env.production.local

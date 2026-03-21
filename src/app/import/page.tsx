@@ -1,33 +1,77 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { parsePStudyTxt } from "@/lib/txt-import";
-import { Deck } from "@/types/pstudy";
+import { Deck, PStudyItem } from "@/types/pstudy";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import { createDeck, saveDeckWithItems } from "@/lib/supabase/decks";
 
-const STORAGE_KEY = "pstudy-decks";
-
-function loadDecks(): Deck[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw);
-  } catch {
-    return [];
+async function doImport(
+  text: string,
+  router: ReturnType<typeof useRouter>
+): Promise<{ ok: boolean; error?: string }> {
+  if (!text.trim()) {
+    return { ok: false, error: "No content to import." };
   }
-}
+  const { items, wasExamFile } = parsePStudyTxt(text);
+  if (items.length === 0) {
+    return { ok: false, error: "No valid items found in the file." };
+  }
 
-function saveDecks(decks: Deck[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(decks));
+  try {
+    const title = wasExamFile ? "Imported exam deck" : "Imported deck";
+    const newDeck = await createDeck(title);
+
+    const itemsWithIds: PStudyItem[] = items.map((it) => ({
+      ...it,
+      id: crypto.randomUUID(),
+    }));
+
+    const deckWithItems: Deck = {
+      ...newDeck,
+      items: itemsWithIds,
+    };
+
+    await saveDeckWithItems(deckWithItems);
+    router.push(`/deck/${newDeck.id}`);
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Import failed",
+    };
+  }
 }
 
 export default function ImportPage() {
   const router = useRouter();
-  const [text, setText] = useState("");
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
-  const [enableDeobfuscation, setEnableDeobfuscation] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) router.replace("/login");
+      else setReady(true);
+    });
+  }, [router]);
+
+  const handleImport = useCallback(
+    async (text: string) => {
+      setImporting(true);
+      setMessage(null);
+      const result = await doImport(text, router);
+      if (!result.ok) {
+        setMessage({ type: "err", text: result.error ?? "Import failed" });
+      }
+      setImporting(false);
+    },
+    [router]
+  );
 
   const handleFile = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -35,40 +79,52 @@ export default function ImportPage() {
       if (!file) return;
       const reader = new FileReader();
       reader.onload = () => {
-        setText(String(reader.result ?? ""));
-        setMessage(null);
+        handleImport(String(reader.result ?? ""));
+      };
+      reader.readAsText(file, "UTF-8");
+      e.target.value = "";
+    },
+    [handleImport]
+  );
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      e.preventDefault();
+      const text = e.clipboardData.getData("text/plain");
+      if (text) handleImport(text);
+    },
+    [handleImport]
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files?.[0];
+      if (!file || !file.name.endsWith(".txt")) {
+        setMessage({ type: "err", text: "Please drop a .txt file." });
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        handleImport(String(reader.result ?? ""));
       };
       reader.readAsText(file, "UTF-8");
     },
-    []
+    [handleImport]
   );
 
-  const handleImport = useCallback(() => {
-    if (!text.trim()) {
-      setMessage({ type: "err", text: "Paste or upload a .txt file first." });
-      return;
-    }
-    const { items, wasExamFile, errors } = parsePStudyTxt(text, {
-      tryUnObfuscate: enableDeobfuscation,
-    });
-    if (items.length === 0) {
-      setMessage({ type: "err", text: "No valid items found in the file." });
-      return;
-    }
-    const decks = loadDecks();
-    const newDeck: Deck = {
-      id: `deck-${Date.now()}`,
-      title: wasExamFile ? "Imported exam deck" : "Imported deck",
-      items,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    saveDecks([newDeck, ...decks]);
-    const extra =
-      errors.length > 0 ? ` (${errors[0]})` : "";
-    setMessage({ type: "ok", text: `Imported ${items.length} items. Redirecting...${extra}` });
-    setTimeout(() => router.push("/dashboard"), 1000);
-  }, [text, router, enableDeobfuscation]);
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }, []);
+
+  if (!ready) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-stone-50">
+        <p className="text-stone-600">Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-stone-50">
@@ -88,58 +144,54 @@ export default function ImportPage() {
           Import PSTUDY .txt file
         </h1>
         <p className="mb-6 text-stone-600">
-          Paste the contents of a PSTUDY text file below, or upload one. We
-          support plain and legacy files. If a legacy file contains Base64 pictures, we’ll convert them so you see thumbnails.
+          Drop your file here, or click to browse. You can also click the box and paste (Ctrl+V).
         </p>
 
-        <div className="mb-4">
-          <label className="btn-secondary inline-block cursor-pointer">
-            <input
-              type="file"
-              accept=".txt,text/plain"
-              className="hidden"
-              onChange={handleFile}
-            />
-            Choose file
-          </label>
-        </div>
-
-        <label className="mb-4 flex items-center gap-2 text-sm text-stone-700">
+        <div
+          role="button"
+          tabIndex={0}
+          onPaste={handlePaste}
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onClick={() => fileInputRef.current?.click()}
+          className={`flex min-h-[12rem] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-stone-300 bg-white p-8 text-center transition hover:border-pstudy-primary hover:bg-teal-50/30 ${
+            importing ? "pointer-events-none opacity-60" : ""
+          }`}
+        >
           <input
-            type="checkbox"
-            checked={enableDeobfuscation}
-            onChange={(e) => setEnableDeobfuscation(e.target.checked)}
+            ref={fileInputRef}
+            type="file"
+            accept=".txt,text/plain"
+            className="hidden"
+            onChange={handleFile}
           />
-          Enable de-obfuscation (only for files saved with obfuscation)
-        </label>
-
-        <textarea
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            setMessage(null);
-          }}
-          placeholder="Paste tab-separated lines: description, explanation, mc1, mc2, mc3, mc4, picture, instruction"
-          className="mb-4 w-full rounded-lg border border-stone-300 p-3 font-mono text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-          rows={12}
-        />
+          {importing ? (
+            <p className="text-stone-600">Importing...</p>
+          ) : (
+            <>
+              <p className="mb-1 font-medium text-stone-700">
+                Drop .txt file or click to browse
+              </p>
+              <p className="text-sm text-stone-500">
+                Or click here and paste (Ctrl+V)
+              </p>
+            </>
+          )}
+        </div>
 
         {message && (
           <p
-            className={`mb-4 ${message.type === "ok" ? "text-green-700" : "text-red-600"}`}
+            className={`mt-4 ${message.type === "ok" ? "text-green-700" : "text-red-600"}`}
           >
             {message.text}
           </p>
         )}
 
-        <div className="flex gap-3">
-          <button onClick={handleImport} className="btn-primary">
-            Import as new deck
-          </button>
-          <Link href="/dashboard" className="btn-secondary">
-            Cancel
+        <p className="mt-6 text-sm text-stone-500">
+          <Link href="/dashboard" className="text-pstudy-primary hover:underline">
+            ← Back to dashboard
           </Link>
-        </div>
+        </p>
       </main>
     </div>
   );

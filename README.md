@@ -5,19 +5,20 @@ A browser-based version of [PSTUDY](https://www.pstudy.be), built with Next.js. 
 ## Quick start
 
 1. Install dependencies: `npm install`
-2. Run dev server: `npm run dev`
-3. Open [http://localhost:3000](http://localhost:3000)
+2. **Set up Supabase** (required for database and login): follow **[SUPABASE-SETUP-GUIDE.md](./SUPABASE-SETUP-GUIDE.md)** step by step
+3. Run dev server: `npm run dev`
+4. Open [http://localhost:3000](http://localhost:3000)
 
 ## Features
 
-- **Dashboard**: Create and manage decks (stored in browser `localStorage` for now).
+- **Dashboard**: Create and manage decks (stored in Supabase database).
 - **Deck editor**: Add/edit/remove items (description, explanation, 4 MC options, instruction).
-- **Import**: Paste or upload a PSTUDY `.txt` file; supports both plain and obfuscated format from the desktop app.
+- **Import**: Paste or upload a PSTUDY `.txt` file.
 - **Practice**: Straight answer or multiple choice, normal or random order; see score at the end.
 
-## Adding a database and auth
+## Database and auth
 
-The app currently uses `localStorage` so it works without a backend. To turn it into a real SaaS:
+The app uses [Supabase](https://supabase.com) for the database and authentication. To turn it into a real SaaS:
 
 1. Add [Supabase](https://supabase.com) (or another DB): tables `users`, `decks`, `items`.
 2. Add auth (e.g. [NextAuth.js](https://nextauth.js.org) or Supabase Auth).
