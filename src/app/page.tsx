@@ -1,20 +1,25 @@
+"use client";
+
 import Link from "next/link";
+import { useTranslation } from "@/lib/i18n";
+import { Logo } from "@/components/Logo";
 
 export default function HomePage() {
+  const { t } = useTranslation();
   return (
     <div className="min-h-screen bg-gradient-to-b from-teal-50 to-stone-100">
       <header className="border-b border-stone-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-          <span className="text-2xl font-bold text-pstudy-primary">PSTUDY</span>
+          <Logo size="md" withText />
           <nav className="flex gap-4">
             <Link
               href="/login"
               className="text-stone-600 hover:text-pstudy-primary"
             >
-              Log in
+              {t("home.logIn")}
             </Link>
             <a href="/dashboard" className="btn-primary cursor-pointer no-underline">
-              Get started
+              {t("home.getStarted")}
             </a>
           </nav>
         </div>
@@ -22,52 +27,50 @@ export default function HomePage() {
 
       <main className="mx-auto max-w-4xl px-4 py-16 text-center">
         <h1 className="mb-4 text-4xl font-bold tracking-tight text-stone-900 md:text-5xl">
-          Study more effectively
+          {t("home.title")}
         </h1>
         <p className="mb-10 text-lg text-stone-600">
-          Build exercises for languages, vocabulary, or any subject. Practice
-          with straight answer or multiple choice, and take timed exams — now
-          online.
+          {t("home.subtitle")}
         </p>
         <div className="flex flex-wrap justify-center gap-4">
           <a
             href="/dashboard"
             className="btn-primary cursor-pointer text-lg no-underline"
           >
-            Open app
+            {t("home.openApp")}
           </a>
           <a
             href="/import"
             className="btn-secondary cursor-pointer text-lg no-underline"
           >
-            Import .txt file
+            {t("home.importTxt")}
           </a>
         </div>
 
         <section className="mt-20 text-left">
           <h2 className="mb-6 text-2xl font-semibold text-stone-800">
-            Features
+            {t("home.features")}
           </h2>
           <ul className="grid gap-3 text-stone-600 md:grid-cols-2">
-            <li>✓ Straight answer and multiple choice</li>
-            <li>✓ Timed examinations</li>
-            <li>✓ Random order and repeat mistakes</li>
-            <li>✓ Import your existing PSTUDY .txt files</li>
-            <li>✓ Works on any device in the browser</li>
-            <li>✓ No installation — always up to date</li>
+            <li>✓ {t("home.feature1")}</li>
+            <li>✓ {t("home.feature2")}</li>
+            <li>✓ {t("home.feature3")}</li>
+            <li>✓ {t("home.feature4")}</li>
+            <li>✓ {t("home.feature5")}</li>
+            <li>✓ {t("home.feature6")}</li>
           </ul>
         </section>
       </main>
 
       <footer className="border-t border-stone-200 py-6 text-center text-sm text-stone-500">
-        PSTUDY · Tesco Engineering bv ·{" "}
+        {t("home.footerBrand")} ·{" "}
         <a
           href="https://www.pstudy.be"
           target="_blank"
           rel="noopener noreferrer"
           className="text-pstudy-primary hover:underline"
         >
-          www.pstudy.be
+          {t("home.website")}
         </a>
       </footer>
     </div>

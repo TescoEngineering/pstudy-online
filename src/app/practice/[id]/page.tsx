@@ -3,6 +3,8 @@
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useTranslation } from "@/lib/i18n";
+import { useToast } from "@/components/Toast";
 import { Deck, PStudyItem } from "@/types/pstudy";
 import { createClient } from "@/lib/supabase/client";
 import { fetchDeck } from "@/lib/supabase/decks";
@@ -40,6 +42,8 @@ function normalizeAnswer(s: string): string {
 
 export default function PracticePage() {
   const params = useParams();
+  const { t } = useTranslation();
+  const toast = useToast();
   const router = useRouter();
   const id = params.id as string;
   const [deck, setDeck] = useState<Deck | null>(null);
@@ -201,7 +205,7 @@ export default function PracticePage() {
     };
 
     const handleError = (msg: string) => {
-      alert(msg);
+      toast.error(msg);
       setIsListening(false);
       stopListeningRef.current = null;
     };
@@ -255,7 +259,7 @@ export default function PracticePage() {
     } else {
       stopListeningRef.current = stop;
     }
-  }, [mode, speakMode, showResult, speechLang, vocabularyBias, list, promptMode, current, flashcardRevealed]);
+  }, [mode, speakMode, showResult, speechLang, vocabularyBias, list, promptMode, current, flashcardRevealed, toast]);
 
   // When item loads: if listenMode, speak the question (only once per item). If speakMode (and straight/flashcard), start listening after TTS ends.
   useEffect(() => {
@@ -428,9 +432,9 @@ export default function PracticePage() {
   if (!deck) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-stone-600">Deck not found.</p>
+        <p className="text-stone-600">{t("practice.deckNotFound")}</p>
         <Link href="/dashboard" className="ml-2 text-pstudy-primary hover:underline">
-          Dashboard
+          {t("result.backToDashboard")}
         </Link>
       </div>
     );
@@ -439,9 +443,9 @@ export default function PracticePage() {
   if (list.length === 0) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4">
-        <p className="text-stone-600">No items in this deck.</p>
+        <p className="text-stone-600">{t("practice.noItems")}</p>
         <Link href={`/deck/${id}`} className="btn-primary">
-          Edit deck
+          {t("deck.editDeck")}
         </Link>
       </div>
     );
@@ -456,7 +460,7 @@ export default function PracticePage() {
           </Link>
           <span className="text-stone-600">
             {repeatMistakesMode ? (
-              <>Repeat mistakes: {list.length} left · ✓ {correct} ✗ {wrong}</>
+              <>{t("practice.repeatMistakesLeft", { count: list.length })} · ✓ {correct} ✗ {wrong}</>
             ) : (
               <>{index + 1} / {total} · ✓ {correct} ✗ {wrong}</>
             )}
@@ -469,7 +473,7 @@ export default function PracticePage() {
           {index === 0 && (
             <>
               <label className="flex items-center gap-2">
-                <span className="text-sm text-stone-600">Ask for</span>
+                <span className="text-sm text-stone-600">{t("practice.askFor")}</span>
                 <select
                   value={promptMode}
                   onChange={(e) =>
@@ -478,12 +482,12 @@ export default function PracticePage() {
                   disabled={mode === "flashcard"}
                   className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary disabled:bg-stone-100 disabled:text-stone-500"
                 >
-                  <option value="description">Description</option>
-                  <option value="explanation">Explanation</option>
+                  <option value="description">{t("practice.description")}</option>
+                  <option value="explanation">{t("practice.explanation")}</option>
                 </select>
               </label>
               <label className="flex items-center gap-2">
-                <span className="text-sm text-stone-600">Answer type</span>
+                <span className="text-sm text-stone-600">{t("practice.answerType")}</span>
                 <select
                   value={mode}
                   onChange={(e) => {
@@ -493,20 +497,20 @@ export default function PracticePage() {
                   }}
                   className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
                 >
-                  <option value="straight">Straight answer</option>
-                  <option value="multiple-choice">Multiple choice</option>
-                  <option value="flashcard">Flashcard (fill by speaking)</option>
+                  <option value="straight">{t("practice.straightAnswer")}</option>
+                  <option value="multiple-choice">{t("practice.multipleChoice")}</option>
+                  <option value="flashcard">{t("practice.flashcard")}</option>
                 </select>
               </label>
               <label className="flex items-center gap-2">
-                <span className="text-sm text-stone-600">Order</span>
+                <span className="text-sm text-stone-600">{t("practice.order")}</span>
                 <select
                   value={order}
                   onChange={(e) => setOrder(e.target.value as "normal" | "random")}
                   className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
                 >
-                  <option value="normal">Normal order</option>
-                  <option value="random">Random</option>
+                  <option value="normal">{t("practice.normalOrder")}</option>
+                  <option value="random">{t("practice.randomOrder")}</option>
                 </select>
               </label>
             </>
@@ -518,7 +522,7 @@ export default function PracticePage() {
               onChange={(e) => setListenMode(e.target.checked)}
               className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
             />
-            <span className="text-sm text-stone-600">Listen (auto-read question)</span>
+            <span className="text-sm text-stone-600">{t("practice.listenMode")}</span>
           </label>
           {(mode === "straight" || mode === "flashcard") && isSpeechRecognitionSupported() && (
             <label className="flex cursor-pointer items-center gap-2">
@@ -528,7 +532,7 @@ export default function PracticePage() {
                 onChange={(e) => setSpeakMode(e.target.checked)}
                 className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
               />
-              <span className="text-sm text-stone-600">Speak (continuous until Enter)</span>
+              <span className="text-sm text-stone-600">{t("practice.speakMode")}</span>
             </label>
           )}
           {(mode === "straight" || mode === "flashcard") && speakMode && mode === "straight" && (
@@ -539,11 +543,11 @@ export default function PracticePage() {
                 onChange={(e) => setVocabularyBias(e.target.checked)}
                 className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
               />
-              <span className="text-sm text-stone-600">Consider only deck answers</span>
+              <span className="text-sm text-stone-600">{t("practice.considerOnlyDeckAnswers")}</span>
             </label>
           )}
           <label className="flex items-center gap-2">
-            <span className="text-sm text-stone-600">Speech language:</span>
+            <span className="text-sm text-stone-600">{t("practice.speechLanguage")}:</span>
             <select
               value={speechLang}
               onChange={(e) => setSpeechLang(e.target.value)}
@@ -560,7 +564,7 @@ export default function PracticePage() {
 
         {repeatMistakesMode && (
           <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
-            Repeat mistakes — {list.length} item{list.length !== 1 ? "s" : ""} remaining
+            {t("practice.repeatMistakesLeft", { count: list.length })}
           </div>
         )}
 
@@ -576,9 +580,9 @@ export default function PracticePage() {
               type="button"
               onClick={handleListenQuestion}
               className="shrink-0 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-600 transition hover:border-pstudy-primary hover:text-pstudy-primary"
-              title="Listen to question"
+              title={t("practice.listenToQuestion")}
             >
-              Listen
+              {t("common.listen")}
             </button>
           </div>
           {current.picture_url && (
@@ -608,7 +612,7 @@ export default function PracticePage() {
                       startSpeakListening();
                     }
                   }}
-                  placeholder="Your answer (press Enter to check)"
+                  placeholder={t("practice.yourAnswer")}
                   className="flex-1 rounded-lg border border-stone-300 px-4 py-3 text-lg focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary"
                   autoFocus
                 />
@@ -654,7 +658,7 @@ export default function PracticePage() {
                   )}
                   {!flashcardRevealed ? (
                     <button onClick={revealFlashcard} className="btn-primary">
-                      Reveal answer (Enter)
+                      {t("practice.revealAnswer")}
                     </button>
                   ) : (
                     <>
@@ -662,12 +666,12 @@ export default function PracticePage() {
                         type="button"
                         onClick={handleListenAnswer}
                         className="rounded border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-600 transition hover:border-pstudy-primary hover:text-pstudy-primary"
-                        title="Listen to answer"
+                        title={t("practice.listenToAnswer")}
                       >
-                        Listen
+                        {t("common.listen")}
                       </button>
                       <button onClick={next} className="btn-primary">
-                        Next
+                        {t("common.next")}
                       </button>
                     </>
                   )}
@@ -707,12 +711,12 @@ export default function PracticePage() {
                 normalizeAnswer(
                   promptMode === "description" ? current.description : current.explanation
                 )
-                  ? "Correct!"
-                  : "Incorrect."}
+                  ? t("common.correct")
+                  : t("common.incorrect")}
               </p>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-stone-700">
                 <span>
-                  Answer:{" "}
+                  {t("common.answer")}:{" "}
                   <strong>
                     {promptMode === "description" ? current.description : current.explanation}
                   </strong>
@@ -721,22 +725,22 @@ export default function PracticePage() {
                   type="button"
                   onClick={handleListenAnswer}
                   className="rounded border border-stone-300 bg-white px-2 py-0.5 text-xs text-stone-600 hover:border-pstudy-primary hover:text-pstudy-primary"
-                  title="Listen to answer"
+                  title={t("practice.listenToAnswer")}
                 >
-                  Listen
+                  {t("common.listen")}
                 </button>
               </div>
             </div>
             <button onClick={next} className="btn-primary">
               {repeatMistakesMode
                 ? list.length <= 1
-                  ? "See results"
-                  : "Next"
+                  ? t("practice.seeResults")
+                  : t("common.next")
                 : index + 1 >= total
                   ? wrongItems.length > 0
-                    ? "Repeat mistakes"
-                    : "See results"
-                  : "Next"}
+                    ? t("practice.repeatMistakes")
+                    : t("practice.seeResults")
+                  : t("common.next")}
             </button>
           </div>
         )}

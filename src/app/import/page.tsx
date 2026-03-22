@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "@/lib/i18n";
+import { Logo } from "@/components/Logo";
 import { parsePStudyTxt } from "@/lib/txt-import";
 import { Deck, PStudyItem } from "@/types/pstudy";
 import Link from "next/link";
@@ -47,6 +49,7 @@ async function doImport(
 
 export default function ImportPage() {
   const router = useRouter();
+  const { t } = useTranslation();
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [ready, setReady] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -121,7 +124,7 @@ export default function ImportPage() {
   if (!ready) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-stone-50">
-        <p className="text-stone-600">Loading...</p>
+        <p className="text-stone-600">{t("common.loading")}</p>
       </div>
     );
   }
@@ -130,21 +133,19 @@ export default function ImportPage() {
     <div className="min-h-screen bg-stone-50">
       <header className="border-b border-stone-200 bg-white">
         <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-4">
-          <Link href="/" className="text-xl font-bold text-pstudy-primary">
-            PSTUDY
-          </Link>
+          <Logo size="sm" withText />
           <Link href="/dashboard" className="text-stone-600 hover:text-pstudy-primary">
-            Dashboard
+            {t("dashboard.myDecks")}
           </Link>
         </div>
       </header>
 
       <main className="mx-auto max-w-2xl px-4 py-8">
         <h1 className="mb-2 text-2xl font-bold text-stone-900">
-          Import PSTUDY .txt file
+          {t("import.title")}
         </h1>
         <p className="mb-6 text-stone-600">
-          Drop your file here, or click to browse. You can also click the box and paste (Ctrl+V).
+          {t("import.dropHint")} {t("import.pasteNote")}
         </p>
 
         <div
@@ -166,14 +167,14 @@ export default function ImportPage() {
             onChange={handleFile}
           />
           {importing ? (
-            <p className="text-stone-600">Importing...</p>
+            <p className="text-stone-600">{t("import.importing")}</p>
           ) : (
             <>
               <p className="mb-1 font-medium text-stone-700">
-                Drop .txt file or click to browse
+                {t("import.dropHint")}
               </p>
               <p className="text-sm text-stone-500">
-                Or click here and paste (Ctrl+V)
+                {t("import.pasteHint")}
               </p>
             </>
           )}
@@ -189,7 +190,7 @@ export default function ImportPage() {
 
         <p className="mt-6 text-sm text-stone-500">
           <Link href="/dashboard" className="text-pstudy-primary hover:underline">
-            ← Back to dashboard
+            ← {t("result.backToDashboard")}
           </Link>
         </p>
       </main>

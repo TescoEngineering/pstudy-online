@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { useToast } from "@/components/Toast";
+import { useTranslation } from "@/lib/i18n";
 
 const BUCKET = "item-pictures";
 
@@ -14,17 +16,19 @@ type PictureUploadProps = {
 export function PictureUpload({ value, onChange, className = "" }: PictureUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const toast = useToast();
+  const { t } = useTranslation();
 
   async function uploadFile(file: File) {
     if (!file.type.startsWith("image/")) {
-      alert("Please select an image file (PNG, JPG, etc.).");
+      toast.error(t("common.selectImageFile"));
       return;
     }
 
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      alert("You must be logged in to upload images.");
+      toast.error(t("common.mustBeLoggedIn"));
       return;
     }
 
@@ -37,7 +41,7 @@ export function PictureUpload({ value, onChange, className = "" }: PictureUpload
     });
 
     if (error) {
-      alert(error.message || "Upload failed.");
+      toast.error(error.message || t("common.uploadFailed"));
       return;
     }
 

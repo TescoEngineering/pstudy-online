@@ -4,14 +4,19 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { Deck, PStudyItem } from "@/types/pstudy";
+import { useTranslation } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
 import { fetchDeck, saveDeckWithItems } from "@/lib/supabase/decks";
 import { ExpandableField } from "@/components/ExpandableField";
 import { PictureUpload } from "@/components/PictureUpload";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { useToast } from "@/components/Toast";
 import { FIELDS_OF_INTEREST, getTopicsForField } from "@/lib/deck-attributes";
 
 export default function DeckEditorPage() {
   const params = useParams();
+  const { t } = useTranslation();
+  const toast = useToast();
   const router = useRouter();
   const id = params.id as string;
   const [deck, setDeck] = useState<Deck | null>(null);
@@ -19,6 +24,7 @@ export default function DeckEditorPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [fillInstruction, setFillInstruction] = useState("");
+  const [removeItemIndex, setRemoveItemIndex] = useState<number | null>(null);
   const lastRowRef = useRef<HTMLTableRowElement>(null);
   const prevItemCountRef = useRef(-1);
 
@@ -59,12 +65,12 @@ export default function DeckEditorPage() {
       try {
         await saveDeckWithItems(updated);
       } catch (err) {
-        alert(err instanceof Error ? err.message : "Failed to save");
+        toast.error(err instanceof Error ? err.message : t("common.failedToSave"));
       } finally {
         setSaving(false);
       }
     },
-    []
+    [toast, t]
   );
 
   function updateDeckLocal(updates: Partial<Deck>) {
@@ -108,9 +114,15 @@ export default function DeckEditorPage() {
   }
 
   function removeItem(index: number) {
-    if (!deck || !confirm("Remove this item?")) return;
-    const items = deck.items.filter((_, i) => i !== index);
+    if (!deck) return;
+    setRemoveItemIndex(index);
+  }
+
+  function confirmRemoveItem() {
+    if (!deck || removeItemIndex === null) return;
+    const items = deck.items.filter((_, i) => i !== removeItemIndex);
     updateDeckLocal({ items });
+    setRemoveItemIndex(null);
   }
 
   function fillInstructionForAll() {
@@ -126,7 +138,7 @@ export default function DeckEditorPage() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-stone-50">
-        <p className="text-stone-600">Loading...</p>
+        <p className="text-stone-600">{t("common.loading")}</p>
       </div>
     );
   }
@@ -134,9 +146,9 @@ export default function DeckEditorPage() {
   if (!deck) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="text-stone-600">Deck not found.</p>
+        <p className="text-stone-600">{t("practice.deckNotFound")}</p>
         <Link href="/dashboard" className="ml-2 text-pstudy-primary hover:underline">
-          Back to dashboard
+          {t("result.backToDashboard")}
         </Link>
       </div>
     );
@@ -147,7 +159,7 @@ export default function DeckEditorPage() {
       <header className="border-b border-stone-200 bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
           <Link href="/dashboard" className="text-pstudy-primary hover:underline">
-            ← Dashboard
+            {t("deck.backToDashboard")}
           </Link>
           <div className="flex flex-wrap items-center gap-4">
             <input
@@ -157,7 +169,7 @@ export default function DeckEditorPage() {
               className="rounded border border-stone-300 px-3 py-1 text-lg font-semibold focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
             />
             <div className="flex items-center gap-2">
-              <label className="text-sm text-stone-600">Field:</label>
+              <label className="text-sm text-stone-600">{t("deck.field")}:</label>
               <select
                 value={deck?.fieldOfInterest ?? ""}
                 onChange={(e) =>
@@ -177,7 +189,7 @@ export default function DeckEditorPage() {
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-sm text-stone-600">Topic:</label>
+              <label className="text-sm text-stone-600">{t("deck.topic")}:</label>
               <select
                 value={deck?.topic ?? ""}
                 onChange={(e) => updateDeckLocal({ topic: e.target.value || null })}
@@ -198,32 +210,32 @@ export default function DeckEditorPage() {
                 onChange={(e) => updateDeckLocal({ isPublic: e.target.checked })}
                 className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
               />
-              Share with community
+              {t("deck.shareWithCommunity")}
             </label>
             <span
               className={`inline-block min-w-[5rem] text-sm text-stone-500 ${saving ? "" : "invisible"}`}
               aria-hidden={!saving}
             >
-              Saving...
+              {t("deck.saving")}
             </span>
           </div>
           <Link href={`/practice/${id}`} className="btn-primary">
-            Practice
+            {t("common.practice")}
           </Link>
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-6">
         <div className="mb-4 flex flex-wrap items-center gap-4">
-          <span className="text-stone-600">{deck.items.length} items</span>
+          <span className="text-stone-600">{deck.items.length} {t("dashboard.items", { count: deck.items.length })}</span>
           <div className="flex flex-wrap items-center gap-2">
-            <label className="text-sm text-stone-600">Fill instruction for all:</label>
+            <label className="text-sm text-stone-600">{t("deck.fillInstructionForAll")}:</label>
             <input
               type="text"
               value={fillInstruction}
               onChange={(e) => setFillInstruction(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && fillInstructionForAll()}
-              placeholder="Type once, apply to all items"
+              placeholder={t("deck.fillInstructionPlaceholder")}
               className="rounded border border-stone-300 px-3 py-1.5 text-sm min-w-[14rem] focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
             />
             <button
@@ -231,11 +243,11 @@ export default function DeckEditorPage() {
               disabled={deck.items.length === 0}
               className="rounded bg-stone-200 px-3 py-1.5 text-sm font-medium hover:bg-stone-300 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Apply to all
+              {t("deck.applyToAll")}
             </button>
           </div>
           <button onClick={addItem} className="btn-primary text-sm">
-            Add item
+            {t("deck.addItem")}
           </button>
         </div>
 
@@ -244,11 +256,11 @@ export default function DeckEditorPage() {
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50">
                 <th className="p-2 font-medium">#</th>
-                <th className="p-2 font-medium">Description (question)</th>
-                <th className="p-2 font-medium">Explanation (answer)</th>
+                <th className="p-2 font-medium">{t("deck.description")}</th>
+                <th className="p-2 font-medium">{t("deck.explanation")}</th>
                 <th className="p-2 font-medium">MC 1–4</th>
-                <th className="p-2 font-medium">Instruction</th>
-                <th className="p-2 font-medium">Picture</th>
+                <th className="p-2 font-medium">{t("deck.instruction")}</th>
+                <th className="p-2 font-medium">{t("deck.picture")}</th>
                 <th className="w-24 p-2"></th>
               </tr>
             </thead>
@@ -266,7 +278,7 @@ export default function DeckEditorPage() {
                       onChange={(v) =>
                         updateItem(i, { ...item, description: v })
                       }
-                      placeholder="Question"
+                      placeholder={t("deck.questionPlaceholder")}
                       compactClassName="w-full min-w-[8rem]"
                     />
                   </td>
@@ -276,7 +288,7 @@ export default function DeckEditorPage() {
                       onChange={(v) =>
                         updateItem(i, { ...item, explanation: v })
                       }
-                      placeholder="Answer"
+                      placeholder={t("deck.answerPlaceholder")}
                       compactClassName="w-full min-w-[8rem]"
                     />
                   </td>
@@ -310,7 +322,7 @@ export default function DeckEditorPage() {
                       onChange={(v) =>
                         updateItem(i, { ...item, instruction: v })
                       }
-                      placeholder="Instruction"
+                      placeholder={t("deck.instructionPlaceholder")}
                       rows={3}
                       compactClassName="w-full min-w-[6rem]"
                     />
@@ -328,7 +340,7 @@ export default function DeckEditorPage() {
                       onClick={() => removeItem(i)}
                       className="text-red-600 hover:underline"
                     >
-                      Remove
+                      {t("common.delete")}
                     </button>
                   </td>
                 </tr>
@@ -337,6 +349,14 @@ export default function DeckEditorPage() {
           </table>
         </div>
       </main>
+
+      <ConfirmModal
+        open={removeItemIndex !== null}
+        onClose={() => setRemoveItemIndex(null)}
+        onConfirm={confirmRemoveItem}
+        title={t("deck.removeItemConfirm")}
+        confirmLabel={t("common.remove")}
+      />
     </div>
   );
 }

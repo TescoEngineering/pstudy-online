@@ -4,9 +4,14 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useTranslation } from "@/lib/i18n";
+import { useToast } from "@/components/Toast";
+import { Logo } from "@/components/Logo";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { t } = useTranslation();
+  const toast = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -49,14 +54,14 @@ export default function LoginPage() {
         const { error } = await supabase.auth.updateUser({ password });
         if (error) throw error;
         setRecoveryMode(false);
-        alert("Password updated. You can now log in.");
+        toast.success(t("login.passwordUpdated"));
         window.history.replaceState(null, "", "/login");
         router.refresh();
       } else if (isSignUp) {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
         setError("");
-        alert("Check your email to confirm your account, then log in.");
+        toast.success(t("login.confirmEmail"));
         setIsSignUp(false);
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -65,7 +70,7 @@ export default function LoginPage() {
         router.refresh();
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof Error ? err.message : t("common.somethingWentWrong"));
     } finally {
       setLoading(false);
     }
@@ -75,11 +80,11 @@ export default function LoginPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-stone-50 px-4">
         <div className="card w-full max-w-sm">
-          <h1 className="mb-6 text-xl font-bold text-stone-900">Set new password</h1>
+          <h1 className="mb-6 text-xl font-bold text-stone-900">{t("login.setNewPassword")}</h1>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="new-password" className="mb-1 block text-sm text-stone-600">
-                New password
+                {t("login.newPassword")}
               </label>
               <input
                 id="new-password"
@@ -98,7 +103,7 @@ export default function LoginPage() {
               disabled={loading}
               className="btn-primary w-full disabled:opacity-50"
             >
-              {loading ? "Updating..." : "Update password"}
+              {loading ? t("login.updating") : t("login.updatePassword")}
             </button>
           </form>
         </div>
@@ -110,10 +115,9 @@ export default function LoginPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-stone-50 px-4">
         <div className="card w-full max-w-sm">
-          <h1 className="mb-4 text-xl font-bold text-stone-900">Check your email</h1>
+          <h1 className="mb-4 text-xl font-bold text-stone-900">{t("login.checkEmail")}</h1>
           <p className="mb-6 text-stone-600">
-            We sent a password reset link to <strong>{email}</strong>. Click the link in the
-            email to set a new password.
+            {t("login.checkEmailText", { email })}
           </p>
           <button
             type="button"
@@ -123,7 +127,7 @@ export default function LoginPage() {
             }}
             className="btn-primary w-full"
           >
-            Back to log in
+            {t("login.backToLogIn")}
           </button>
         </div>
       </div>
@@ -132,15 +136,16 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-stone-50 px-4">
+      <Logo size="md" withText linkToHome className="mb-6" />
       <div className="card w-full max-w-sm">
         <h1 className="mb-6 text-xl font-bold text-stone-900">
-          {forgotPassword ? "Reset password" : isSignUp ? "Create account" : "Log in"}
+          {forgotPassword ? t("login.resetPassword") : isSignUp ? t("login.createAccount") : t("login.logIn")}
         </h1>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label htmlFor="email" className="mb-1 block text-sm text-stone-600">
-              Email
+              {t("login.email")}
             </label>
             <input
               id="email"
@@ -155,7 +160,7 @@ export default function LoginPage() {
           {!forgotPassword && (
             <div>
               <label htmlFor="password" className="mb-1 block text-sm text-stone-600">
-                Password
+                {t("login.password")}
               </label>
               <input
                 id="password"
@@ -176,12 +181,12 @@ export default function LoginPage() {
             className="btn-primary w-full disabled:opacity-50"
           >
             {loading
-              ? "Please wait..."
+              ? t("login.pleaseWait")
               : forgotPassword
-                ? "Send reset link"
+                ? t("login.sendResetLink")
                 : isSignUp
-                  ? "Sign up"
-                  : "Log in"}
+                  ? t("login.signUp")
+                  : t("login.logIn")}
           </button>
         </form>
 
@@ -192,28 +197,28 @@ export default function LoginPage() {
               onClick={() => setForgotPassword(false)}
               className="text-pstudy-primary hover:underline"
             >
-              ← Back to log in
+              {t("login.backToLogIn")}
             </button>
           ) : isSignUp ? (
             <>
-              Already have an account?{" "}
+              {t("login.alreadyHaveAccount")}{" "}
               <button
                 type="button"
                 onClick={() => setIsSignUp(false)}
                 className="text-pstudy-primary hover:underline"
               >
-                Log in
+                {t("login.logIn")}
               </button>
             </>
           ) : (
             <>
-              No account yet?{" "}
+              {t("login.noAccountYet")}{" "}
               <button
                 type="button"
                 onClick={() => setIsSignUp(true)}
                 className="text-pstudy-primary hover:underline"
               >
-                Sign up
+                {t("login.signUp")}
               </button>
               {" · "}
               <button
@@ -221,7 +226,7 @@ export default function LoginPage() {
                 onClick={() => setForgotPassword(true)}
                 className="text-pstudy-primary hover:underline"
               >
-                Forgot password?
+                {t("login.forgotPassword")}
               </button>
             </>
           )}
@@ -229,7 +234,7 @@ export default function LoginPage() {
 
         <p className="mt-4 text-center text-sm text-stone-500">
           <Link href="/" className="text-pstudy-primary hover:underline">
-            Back to home
+            {t("login.backToHome")}
           </Link>
         </p>
       </div>
