@@ -20,9 +20,6 @@ export function Logo({ size = "sm", withText = false, linkToHome = true, classNa
         src="/logo.jpg"
         alt="PSTUDY"
         className={`max-w-[180px] object-contain object-left ${heightClass}`}
-        style={{
-          filter: "sepia(1) saturate(6) hue-rotate(145deg) brightness(0.9) contrast(1.1)",
-        }}
       />
       {withText && (
         <span
