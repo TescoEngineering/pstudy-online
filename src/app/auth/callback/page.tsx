@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
@@ -19,7 +18,6 @@ function createImplicitClient() {
 }
 
 export default function AuthCallbackPage() {
-  const router = useRouter();
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
 
   useEffect(() => {
@@ -35,26 +33,51 @@ export default function AuthCallbackPage() {
         const { data: { session }, error } = await supabase.auth.exchangeCodeForSession(code);
         if (!error && session) {
           setStatus("success");
-          router.replace("/login?recovery=1");
+          window.location.replace("/login?recovery=1");
           return;
         }
       }
 
       // Implicit flow: tokens in hash (Supabase default for email links)
+      // Try implicit client first - it correctly parses Supabase's hash format
       if (hash && (hash.includes("access_token") || hash.includes("type=recovery"))) {
-        const supabase = createImplicitClient();
-        await new Promise((r) => setTimeout(r, 200));
-        const { data: { session } } = await supabase.auth.getSession();
+        const implicitSupabase = createImplicitClient();
+        let session = (await implicitSupabase.auth.getSession()).data.session;
+        for (let i = 0; i < 10 && !session; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          session = (await implicitSupabase.auth.getSession()).data.session;
+        }
         if (session) {
-          // Persist to our main client's storage (cookies) by refreshing
           const mainClient = createClient();
-          await mainClient.auth.setSession({
+          const { error } = await mainClient.auth.setSession({
             access_token: session.access_token,
             refresh_token: session.refresh_token,
           });
-          setStatus("success");
-          router.replace("/login?recovery=1");
-          return;
+          if (!error) {
+            setStatus("success");
+            window.location.replace("/login?recovery=1");
+            return;
+          }
+        }
+        // Fallback: manual hash parse (in case implicit client cleared hash before storing)
+        const hashParams = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+        const accessToken = hashParams.get("access_token");
+        const refreshToken = hashParams.get("refresh_token");
+        if (accessToken && refreshToken) {
+          try {
+            const mainClient = createClient();
+            const { error } = await mainClient.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+            if (!error) {
+              setStatus("success");
+              window.location.replace("/login?recovery=1");
+              return;
+            }
+          } catch {
+            // Fall through to error
+          }
         }
       }
 
@@ -69,17 +92,17 @@ export default function AuthCallbackPage() {
         });
         if (!error) {
           setStatus("success");
-          router.replace("/login?recovery=1");
+          window.location.replace("/login?recovery=1");
           return;
         }
       }
 
       setStatus("error");
-      router.replace("/login?error=auth");
+      window.location.replace("/login?error=auth");
     }
 
     handleCallback();
-  }, [router]);
+  }, []);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-stone-50">
