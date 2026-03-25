@@ -59,7 +59,9 @@
     "noAccountYet": "Non hai ancora un account?",
     "backToHome": "Torna alla home",
     "passwordUpdated": "Password aggiornata. Puoi ora accedere.",
-    "confirmEmail": "Controlla la tua email per confermare il tuo account, poi accedi."
+    "confirmEmail": "Controlla la tua email per confermare il tuo account, poi accedi.",
+    "authLinkInvalid": "Il link di reimpostazione non ha funzionato (scaduto o aperto senza l'indirizzo completo). Richiedine uno nuovo con « Password dimenticata? » sotto, oppure apri il link in Safari, Chrome o Edge invece che nel browser dell'app email.",
+    "dismissHint": "Chiudi"
   },
   "dashboard": {
     "myDecks": "I miei mazzi",

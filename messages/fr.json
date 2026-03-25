@@ -59,7 +59,9 @@
     "noAccountYet": "Pas encore de compte ?",
     "backToHome": "Retour à l'accueil",
     "passwordUpdated": "Mot de passe mis à jour. Vous pouvez maintenant vous connecter.",
-    "confirmEmail": "Vérifiez votre e-mail pour confirmer votre compte, puis connectez-vous."
+    "confirmEmail": "Vérifiez votre e-mail pour confirmer votre compte, puis connectez-vous.",
+    "authLinkInvalid": "Le lien de réinitialisation n'a pas pu être utilisé (expiré ou ouvert sans l'adresse complète par votre application mail). Demandez un nouveau lien avec « Mot de passe oublié ? » ci-dessous, ou ouvrez le lien dans Safari, Chrome ou Edge plutôt que dans le navigateur intégré.",
+    "dismissHint": "Fermer"
   },
   "dashboard": {
     "myDecks": "Mes paquets",

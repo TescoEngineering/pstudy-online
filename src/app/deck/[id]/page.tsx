@@ -219,9 +219,14 @@ export default function DeckEditorPage() {
               {t("deck.saving")}
             </span>
           </div>
-          <Link href={`/practice/${id}`} className="btn-primary">
-            {t("common.practice")}
-          </Link>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link href={`/exams/new?deck=${id}`} className="btn-secondary text-sm">
+              {t("exam.newExam")}
+            </Link>
+            <Link href={`/practice/${id}`} className="btn-primary">
+              {t("common.practice")}
+            </Link>
+          </div>
         </div>
       </header>
 

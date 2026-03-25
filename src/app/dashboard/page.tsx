@@ -101,10 +101,22 @@ export default function DashboardPage() {
               {t("dashboard.community")}
             </Link>
             <Link
+              href="/my-exams"
+              className="text-stone-600 hover:text-pstudy-primary"
+            >
+              {t("exam.myAssignedExams")}
+            </Link>
+            <Link
               href="/import"
               className="text-stone-600 hover:text-pstudy-primary"
             >
               {t("dashboard.importTxt")}
+            </Link>
+            <Link
+              href="/exams"
+              className="text-stone-600 hover:text-pstudy-primary"
+            >
+              {t("exam.title")}
             </Link>
             <button
               onClick={handleSignOut}

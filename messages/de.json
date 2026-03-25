@@ -59,7 +59,9 @@
     "noAccountYet": "Noch kein Konto?",
     "backToHome": "Zurück zur Startseite",
     "passwordUpdated": "Passwort aktualisiert. Sie können sich jetzt anmelden.",
-    "confirmEmail": "Prüfen Sie Ihre E-Mail, um Ihr Konto zu bestätigen, und melden Sie sich dann an."
+    "confirmEmail": "Prüfen Sie Ihre E-Mail, um Ihr Konto zu bestätigen, und melden Sie sich dann an.",
+    "authLinkInvalid": "Der Zurücksetzen-Link konnte nicht verwendet werden (abgelaufen oder unvollständig geöffnet). Fordern Sie unten einen neuen Link an oder öffnen Sie den Link in Safari, Chrome oder Edge statt im E-Mail-In-App-Browser.",
+    "dismissHint": "Schließen"
   },
   "dashboard": {
     "myDecks": "Meine Decks",
