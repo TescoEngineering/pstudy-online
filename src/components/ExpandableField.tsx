@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 
 type ExpandableFieldProps = {
-  value: string;
+  /** DB / state may pass null; empty must stay "" so placeholders show. */
+  value: string | null | undefined;
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
@@ -23,19 +24,19 @@ export function ExpandableField({
   compactClassName = "",
 }: ExpandableFieldProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [localValue, setLocalValue] = useState(value);
+  const [localValue, setLocalValue] = useState(() => toFieldString(value));
 
   useEffect(() => {
-    setLocalValue(value);
+    setLocalValue(toFieldString(value));
   }, [value, isExpanded]);
 
   const handleOpen = () => {
     setIsExpanded(true);
-    setLocalValue(value);
+    setLocalValue(toFieldString(value));
   };
 
   const handleClose = () => {
-    onChange(localValue);
+    onChange(normalizeCommit(localValue));
     setIsExpanded(false);
   };
 
@@ -46,23 +47,29 @@ export function ExpandableField({
     }
     if (e.key === "Escape") {
       e.preventDefault();
-      setLocalValue(value);
+      setLocalValue(toFieldString(value));
       setIsExpanded(false);
     }
   };
 
+  const compactValue = toFieldString(value);
+
   return (
     <>
       <textarea
-        value={value}
+        value={compactValue}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={(e) => {
+          const v = e.currentTarget.value;
+          if (v !== "" && v.trim() === "") onChange("");
+        }}
         onDoubleClick={(e) => {
           e.preventDefault();
           handleOpen();
         }}
         rows={compactRows}
         title="Double-click to expand"
-        className={`block w-full resize-none rounded border border-stone-200 px-2 py-1 text-left focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary ${compactClassName}`}
+        className={`block w-full resize-none rounded border border-stone-200 px-2 py-1 text-left text-stone-800 placeholder:text-stone-400 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary ${compactClassName}`}
         placeholder={placeholder || "Click to edit"}
       />
 
@@ -78,13 +85,13 @@ export function ExpandableField({
             onClick={(e) => e.stopPropagation()}
           >
             <textarea
-              value={localValue}
+              value={toFieldString(localValue)}
               onChange={(e) => setLocalValue(e.target.value)}
               onKeyDown={handleKeyDown}
               onBlur={handleClose}
               autoFocus
               rows={rows}
-              className={`w-full resize-none rounded border border-stone-300 px-3 py-2 focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary ${className}`}
+              className={`w-full resize-none rounded border border-stone-300 px-3 py-2 text-stone-800 placeholder:text-stone-400 focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary ${className}`}
               placeholder={placeholder}
             />
             <div className="mt-2 flex items-center justify-between">
@@ -105,4 +112,15 @@ export function ExpandableField({
       )}
     </>
   );
+}
+
+function toFieldString(v: string | null | undefined): string {
+  if (v == null) return "";
+  return String(v);
+}
+
+/** Collapse whitespace-only to "" so empty fields stay consistent with placeholders. */
+function normalizeCommit(v: string | null | undefined): string {
+  const s = toFieldString(v);
+  return s.trim() === "" ? "" : s;
 }

@@ -238,3 +238,23 @@ export async function addInvitesToAssignment(
   if (insErr) throw toError(insErr);
   return (inserted ?? []) as ExamInviteRow[];
 }
+
+/** Owner-only. Cascades to invites and attempts per DB schema. Does not delete the deck. */
+export async function deleteExamAssignment(assignmentId: string): Promise<void> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not logged in");
+
+  const { data, error } = await supabase
+    .from("exam_assignments")
+    .delete()
+    .eq("id", assignmentId)
+    .select("id");
+
+  if (error) throw toError(error);
+  if (!data?.length) {
+    throw new Error("Exam not found or you don't have permission to delete it");
+  }
+}

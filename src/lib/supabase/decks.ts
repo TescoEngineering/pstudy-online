@@ -26,17 +26,24 @@ export type DbItem = {
   instruction: string;
 };
 
+/** Supabase may return NULL; whitespace-only should behave as empty for placeholders. */
+function strFromDb(s: string | null | undefined): string {
+  if (s == null) return "";
+  const t = String(s);
+  return t.trim() === "" ? "" : t;
+}
+
 function dbItemToItem(db: DbItem): PStudyItem {
   return {
     id: db.id,
-    description: db.description,
-    explanation: db.explanation,
-    multiplechoice1: db.multiplechoice1,
-    multiplechoice2: db.multiplechoice2,
-    multiplechoice3: db.multiplechoice3,
-    multiplechoice4: db.multiplechoice4,
-    picture_url: db.picture_url,
-    instruction: db.instruction,
+    description: strFromDb(db.description),
+    explanation: strFromDb(db.explanation),
+    multiplechoice1: strFromDb(db.multiplechoice1),
+    multiplechoice2: strFromDb(db.multiplechoice2),
+    multiplechoice3: strFromDb(db.multiplechoice3),
+    multiplechoice4: strFromDb(db.multiplechoice4),
+    picture_url: strFromDb(db.picture_url),
+    instruction: strFromDb(db.instruction),
   };
 }
 

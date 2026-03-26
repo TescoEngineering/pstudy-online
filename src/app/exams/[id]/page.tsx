@@ -8,10 +8,12 @@ import { useTranslation } from "@/lib/i18n";
 import {
   fetchExamAssignmentDetail,
   addInvitesToAssignment,
+  deleteExamAssignment,
   type ExamInviteRow,
 } from "@/lib/supabase/exams";
 import { Logo } from "@/components/Logo";
 import { useToast } from "@/components/Toast";
+import { ConfirmModal } from "@/components/ConfirmModal";
 
 export default function ExamDetailPage() {
   const params = useParams();
@@ -37,6 +39,7 @@ export default function ExamDetailPage() {
   const [resultsLoading, setResultsLoading] = useState(true);
   const [resultsError, setResultsError] = useState("");
   const [examBusy, setExamBusy] = useState(false);
+  const [showDeleteExam, setShowDeleteExam] = useState(false);
   const [results, setResults] = useState<
     Array<{
       inviteId: string;
@@ -171,6 +174,22 @@ export default function ExamDetailPage() {
     toast.success(t("exam.linkCopied"));
   }
 
+  async function handleDeleteExam() {
+    if (examBusy) return;
+    setExamBusy(true);
+    try {
+      await deleteExamAssignment(id);
+      toast.success(t("exam.deleteExamSuccess"));
+      router.replace("/exams");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t("common.somethingWentWrong")
+      );
+    } finally {
+      setExamBusy(false);
+    }
+  }
+
   async function handleAddInvites(e: React.FormEvent) {
     e.preventDefault();
     if (!moreEmails.trim()) return;
@@ -234,10 +253,18 @@ export default function ExamDetailPage() {
             : t("exam.promptExplanation")}
         </p>
 
-        <div className="mb-6 flex flex-wrap gap-3">
+        <div className="mb-6 flex flex-wrap items-center gap-3">
           <Link href={`/deck/${deckId}`} className="btn-secondary text-sm">
             {t("exam.openDeck")}
           </Link>
+          <button
+            type="button"
+            onClick={() => setShowDeleteExam(true)}
+            disabled={examBusy}
+            className="text-sm font-medium text-red-600 underline-offset-2 hover:underline disabled:opacity-50"
+          >
+            {t("exam.deleteExam")}
+          </button>
         </div>
 
         <div className="mb-4 rounded-lg border border-stone-200 bg-white p-4">
@@ -396,6 +423,16 @@ export default function ExamDetailPage() {
           )}
         </div>
       </main>
+
+      <ConfirmModal
+        open={showDeleteExam}
+        onClose={() => setShowDeleteExam(false)}
+        onConfirm={() => void handleDeleteExam()}
+        title={t("exam.deleteExamTitle")}
+        message={t("exam.deleteExamMessage")}
+        confirmLabel={t("exam.deleteExam")}
+        variant="danger"
+      />
     </div>
   );
 }

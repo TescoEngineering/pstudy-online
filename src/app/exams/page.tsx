@@ -5,15 +5,24 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useTranslation } from "@/lib/i18n";
-import { fetchMyExamAssignments, type ExamAssignmentSummary } from "@/lib/supabase/exams";
+import {
+  fetchMyExamAssignments,
+  deleteExamAssignment,
+  type ExamAssignmentSummary,
+} from "@/lib/supabase/exams";
 import { Logo } from "@/components/Logo";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { useToast } from "@/components/Toast";
 
 export default function ExamsListPage() {
   const router = useRouter();
   const { t } = useTranslation();
+  const toast = useToast();
   const [rows, setRows] = useState<ExamAssignmentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<ExamAssignmentSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -41,6 +50,23 @@ export default function ExamsListPage() {
     }
     load();
   }, [router, t]);
+
+  async function confirmDeleteExam() {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    try {
+      await deleteExamAssignment(deleteTarget.id);
+      setRows((prev) => prev.filter((r) => r.id !== deleteTarget.id));
+      toast.success(t("exam.deleteExamSuccess"));
+      setDeleteTarget(null);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : t("common.somethingWentWrong")
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -102,14 +128,34 @@ export default function ExamsListPage() {
                     {t("exam.invites")}: {r.invite_count} · {t("exam.items", { count: r.deck.items.length })}
                   </p>
                 </div>
-                <Link href={`/exams/${r.id}`} className="btn-secondary text-sm">
-                  {t("exam.details")}
-                </Link>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link href={`/exams/${r.id}`} className="btn-secondary text-sm">
+                    {t("exam.details")}
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTarget(r)}
+                    disabled={deleting}
+                    className="text-sm font-medium text-red-600 underline-offset-2 hover:underline disabled:opacity-50"
+                  >
+                    {t("exam.deleteExam")}
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
         )}
       </main>
+
+      <ConfirmModal
+        open={deleteTarget !== null}
+        onClose={() => !deleting && setDeleteTarget(null)}
+        onConfirm={() => void confirmDeleteExam()}
+        title={t("exam.deleteExamTitle")}
+        message={t("exam.deleteExamMessage")}
+        confirmLabel={t("exam.deleteExam")}
+        variant="danger"
+      />
     </div>
   );
 }

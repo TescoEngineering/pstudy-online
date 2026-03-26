@@ -221,6 +221,10 @@
     "revokeInvite": "Revoke",
     "reissueOk": "Reissued. New link ready.",
     "revokeOk": "Revoked.",
+    "deleteExam": "Delete exam",
+    "deleteExamTitle": "Delete this exam?",
+    "deleteExamMessage": "This removes the exam assignment, all invitation links, and stored results. Your deck is not deleted. This cannot be undone.",
+    "deleteExamSuccess": "Exam deleted.",
     "exportCsv": "Export CSV",
     "exportStarted": "CSV export started.",
     "examValidation": {
