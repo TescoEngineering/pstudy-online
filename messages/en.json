@@ -125,7 +125,10 @@
     "seeResults": "See results",
     "deckNotFound": "Deck not found.",
     "noItems": "No items in this deck.",
-    "repeatMistakesLeft": "Repeat mistakes — {count} left"
+    "repeatMistakesLeft": "Repeat mistakes — {count} left",
+    "speechInputUnavailable": "Speech input is not available: use Chrome or Edge, or enable Google Speech and turn on “Consider only deck answers” (straight mode) or use Flashcard mode.",
+    "speechMcNoMic": "Speech (Speak) is only available in straight answer or flashcard mode — not in multiple choice.",
+    "speechBrowserTip": "If you hear nothing: use Chrome or Edge, click once on the page, then try Listen / Speak. Some browsers block speech until you interact."
   },
   "result": {
     "complete": "Practice complete",

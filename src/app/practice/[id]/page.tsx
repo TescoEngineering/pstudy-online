@@ -14,6 +14,8 @@ import {
   stopSpeaking,
   startListening,
   isSpeechRecognitionSupported,
+  prepareSpeechSynthesis,
+  resolveDeckOnlyTranscript,
 } from "@/lib/speech";
 import { startCloudListening } from "@/lib/speech-cloud";
 import { SPEECH_LANGUAGES } from "@/lib/speech-languages";
@@ -66,6 +68,7 @@ export default function PracticePage() {
   const [speakMode, setSpeakMode] = useState(false);
   const [speechLang, setSpeechLang] = useState("en");
   const [vocabularyBias, setVocabularyBias] = useState(false);
+  const [cloudSttAvailable, setCloudSttAvailable] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [flashcardFilled, setFlashcardFilled] = useState<(string | null)[]>([]);
   const [flashcardRevealed, setFlashcardRevealed] = useState(false);
@@ -105,6 +108,29 @@ export default function PracticePage() {
     }
     load();
   }, [id, order, router]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch("/api/speech-to-text/status");
+        const d = (await r.json()) as { available?: boolean };
+        setCloudSttAvailable(!!d?.available);
+      } catch {
+        setCloudSttAvailable(false);
+      }
+    })();
+  }, []);
+
+  /** Browsers often block or suspend TTS until the user interacts with the page once. */
+  useEffect(() => {
+    const unlock = () => prepareSpeechSynthesis();
+    document.addEventListener("pointerdown", unlock, { passive: true });
+    document.addEventListener("keydown", unlock);
+    return () => {
+      document.removeEventListener("pointerdown", unlock);
+      document.removeEventListener("keydown", unlock);
+    };
+  }, []);
 
   const current = list[index];
   const total = list.length;
@@ -152,15 +178,23 @@ export default function PracticePage() {
       (isFlashcard && flashcardRevealed)
     )
       return;
-    if (!isSpeechRecognitionSupported()) return;
     stopListeningRef.current?.();
     setIsListening(true);
 
-    const vocabulary = isFlashcard
+    const deckVocabulary = isFlashcard
       ? [...new Set(getExplanationWords(String(current?.explanation ?? "")))]
-      : vocabularyBias
-        ? [...new Set(list.map((it) => String(promptMode === "description" ? it.description : it.explanation ?? "").trim()).filter(Boolean))]
-        : undefined;
+      : [
+          ...new Set(
+            list
+              .flatMap((it) => [
+                String(it.description ?? "").trim(),
+                String(it.explanation ?? "").trim(),
+              ])
+              .filter(Boolean)
+          ),
+        ];
+
+    const vocabulary = deckVocabulary.length ? deckVocabulary : undefined;
 
     const handleResult = (transcript: string, isFinal: boolean) => {
       if (!isFinal || !transcript.trim()) return;
@@ -173,7 +207,9 @@ export default function PracticePage() {
       }
       let newTranscript = transcript.trim();
       const q = questionTextRef.current.trim();
-      if (q) {
+      // Deck answers are short phrases; stripping TTS/question prefixes often eats the whole utterance
+      // on a retry (e.g. question text is a prefix of the state name) or corrupts it ("Wash" → "ington").
+      if (q && !vocabularyBias) {
         for (let i = q.length; i >= 1; i--) {
           const prefix = q.slice(0, i);
           if (newTranscript.toLowerCase().startsWith(prefix.toLowerCase())) {
@@ -183,6 +219,12 @@ export default function PracticePage() {
         }
       }
       if (!newTranscript) return;
+      if (vocabularyBias && vocabulary?.length) {
+        const resolved = resolveDeckOnlyTranscript(newTranscript, vocabulary);
+        if (resolved === null) return;
+        setAnswer(resolved);
+        return;
+      }
       const currentAnswer = answerRef.current.trim();
       if (currentAnswer === "" || newTranscript === currentAnswer) {
         setAnswer(newTranscript);
@@ -242,9 +284,15 @@ export default function PracticePage() {
     }
 
     if (!stop) {
+      if (!isSpeechRecognitionSupported()) {
+        setIsListening(false);
+        stopListeningRef.current = null;
+        toast.error(t("practice.speechInputUnavailable"));
+        return;
+      }
       stop = startListening({
         lang: speechLang,
-        vocabulary: vocabulary?.length ? vocabulary : undefined,
+        vocabulary,
         vocabularyOnly: useVocabulary,
         continuous: true,
         onResult: handleResult,
@@ -259,7 +307,7 @@ export default function PracticePage() {
     } else {
       stopListeningRef.current = stop;
     }
-  }, [mode, speakMode, showResult, speechLang, vocabularyBias, list, promptMode, current, flashcardRevealed, toast]);
+  }, [mode, speakMode, showResult, speechLang, vocabularyBias, list, promptMode, current, flashcardRevealed, toast, t]);
 
   // When item loads: if listenMode, speak the question (only once per item). If speakMode (and straight/flashcard), start listening after TTS ends.
   useEffect(() => {
@@ -524,7 +572,8 @@ export default function PracticePage() {
             />
             <span className="text-sm text-stone-600">{t("practice.listenMode")}</span>
           </label>
-          {(mode === "straight" || mode === "flashcard") && isSpeechRecognitionSupported() && (
+          {(mode === "straight" || mode === "flashcard") &&
+            (isSpeechRecognitionSupported() || cloudSttAvailable) && (
             <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
@@ -534,6 +583,9 @@ export default function PracticePage() {
               />
               <span className="text-sm text-stone-600">{t("practice.speakMode")}</span>
             </label>
+          )}
+          {mode === "multiple-choice" && (
+            <p className="w-full text-xs text-stone-500">{t("practice.speechMcNoMic")}</p>
           )}
           {(mode === "straight" || mode === "flashcard") && speakMode && mode === "straight" && (
             <label className="flex cursor-pointer items-center gap-2">
@@ -560,6 +612,7 @@ export default function PracticePage() {
               ))}
             </select>
           </label>
+          <p className="w-full text-xs text-stone-500">{t("practice.speechBrowserTip")}</p>
         </div>
 
         {repeatMistakesMode && (
