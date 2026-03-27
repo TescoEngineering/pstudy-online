@@ -5,6 +5,31 @@
  */
 
 import { normalizeSpeechLocale } from "@/lib/speech-locale";
+import { normalizeSttAliasKey } from "@/lib/speech-deck-aliases";
+
+function orderAlternativesForUserAliases(
+  alts: string[],
+  userAliases?: Readonly<Record<string, string>> | null
+): string[] {
+  if (!userAliases || Object.keys(userAliases).length === 0) return alts;
+  const keys = new Set(Object.keys(userAliases));
+  const touches = (cand: string): boolean => {
+    const line = normalizeSttAliasKey(cand);
+    if (!line) return false;
+    if (keys.has(line)) return true;
+    for (const tok of line.split(/\s+/)) {
+      if (tok && keys.has(tok)) return true;
+    }
+    return false;
+  };
+  return [...alts].sort((a, b) => {
+    const ma = touches(a);
+    const mb = touches(b);
+    if (ma && !mb) return -1;
+    if (!ma && mb) return 1;
+    return 0;
+  });
+}
 
 /** Chrome often leaves speechSynthesis "paused" until resume(); call before speak/sr. */
 export function prepareSpeechSynthesis(): void {
@@ -95,10 +120,10 @@ function cleanSpeechToken(raw: string): string {
 
 /** Common speech recognition mishearings for solfège (do, re, mi, fa, sol, la, si). */
 const SOLFEGE_MISHEARINGS: Record<string, string> = {
-  doe: "do", dough: "do", due: "do", doh: "do",
-  ray: "re", rei: "re", rey: "re",
-  me: "mi", my: "mi", mee: "mi",
-  far: "fa", faa: "fa",
+  doe: "do", dough: "do", due: "do", doh: "do", duh: "do", though: "do",
+  ray: "re", rei: "re", rey: "re", ree: "re", rah: "re", ruh: "re",
+  me: "mi", my: "mi", mee: "mi", meh: "mi",
+  far: "fa", faa: "fa", fah: "fa",
   soul: "sol",
   soulful: "sol",
   so: "sol",
@@ -107,9 +132,39 @@ const SOLFEGE_MISHEARINGS: Record<string, string> = {
   sawl: "sol",
   saul: "sol",
   sole: "sol",
+  soh: "sol",
   law: "la", lah: "la", laa: "la",
   see: "si", sea: "si", c: "si", tea: "ti", tee: "ti", ti: "si",
 };
+
+/**
+ * Extra phrases sent only to Google Speech phrase hints (not used for deck resolution).
+ * English STT often returns no hypothesis for bare syllables unless those sounds appear as hints.
+ */
+export function expandPhraseHintsForGoogle(phrases: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (s: string) => {
+    const u = s.trim();
+    if (!u) return;
+    const k = u.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(u);
+  };
+
+  for (const p of phrases) {
+    add(p);
+    const n = normalizeForMatch(p);
+    if (!n) continue;
+    for (const [misheard, canonical] of Object.entries(SOLFEGE_MISHEARINGS)) {
+      if (normalizeForMatch(canonical) === n) {
+        add(misheard);
+      }
+    }
+  }
+  return out;
+}
 
 /**
  * Tokens often wrongly inserted by English STT when learning single syllables; never map these to notes.
@@ -185,11 +240,66 @@ function resolveTwoCharNoteFuzzy(token: string, vocabulary: string[]): string | 
 }
 
 /**
+ * Soft path for standard STT: replace only user-defined heard → deck strings; keep other tokens.
+ * Does not drop unrecognized words (unlike resolveDeckOnlyTranscript).
+ */
+export function applyUserAliasesToTranscript(
+  transcript: string,
+  vocabulary: string[],
+  userAliases?: Readonly<Record<string, string>> | null
+): string {
+  const trimmed = transcript.trim();
+  if (!trimmed || !vocabulary.length || !userAliases || !Object.keys(userAliases).length) {
+    return trimmed;
+  }
+
+  const vocabNormToCanon = new Map<string, string>();
+  for (const v of vocabulary) {
+    const n = normalizeForMatch(v);
+    if (n) vocabNormToCanon.set(n, v);
+  }
+
+  const line = normalizeForMatch(trimmed);
+  if (!line) return trimmed;
+
+  const lineAlias = userAliases[line];
+  if (lineAlias) {
+    const canon = vocabNormToCanon.get(normalizeForMatch(lineAlias));
+    if (canon) return canon;
+  }
+
+  const tokens = line.split(/\s+/).map((w) => cleanSpeechToken(w)).filter(Boolean);
+  if (tokens.length === 0) return trimmed;
+
+  const out: string[] = [];
+  for (const token of tokens) {
+    if (vocabNormToCanon.has(token)) {
+      out.push(vocabNormToCanon.get(token)!);
+      continue;
+    }
+    const aliasTarget = userAliases[token];
+    if (aliasTarget) {
+      const canon = vocabNormToCanon.get(normalizeForMatch(aliasTarget));
+      if (canon) {
+        out.push(canon);
+        continue;
+      }
+    }
+    out.push(token);
+  }
+  return out.join(" ");
+}
+
+/**
  * When "Consider only deck answers" is on: keep only tokens that can be tied to the deck
  * vocabulary (exact, solfège aliases, or fuzzy for longer words). Google phrase hints are not a grammar —
  * this is the real constraint. Returns null if nothing in the transcript matches (ignored).
  */
-export function resolveDeckOnlyTranscript(transcript: string, vocabulary: string[]): string | null {
+export function resolveDeckOnlyTranscript(
+  transcript: string,
+  vocabulary: string[],
+  userAliases?: Readonly<Record<string, string>> | null
+): string | null {
   if (!vocabulary.length) return null;
 
   const vocabNormToCanon = new Map<string, string>();
@@ -200,6 +310,14 @@ export function resolveDeckOnlyTranscript(transcript: string, vocabulary: string
   const line = normalizeForMatch(transcript);
   if (!line) return null;
 
+  if (userAliases) {
+    const aliasTarget = userAliases[line];
+    if (aliasTarget) {
+      const canon = vocabNormToCanon.get(normalizeForMatch(aliasTarget));
+      if (canon) return canon;
+    }
+  }
+
   if (vocabNormToCanon.has(line)) {
     return vocabNormToCanon.get(line)!;
   }
@@ -209,11 +327,11 @@ export function resolveDeckOnlyTranscript(transcript: string, vocabulary: string
     return extracted;
   }
 
-  const wholeFuzzy = findClosestVocabMatch(line, vocabulary);
-  if (wholeFuzzy) {
-    return wholeFuzzy;
-  }
-
+  /**
+   * Whole-line fuzzy matching must run *after* token-level user aliases and SOLFEGE
+   * (see → si). Otherwise short strings like "see" wrongly fuzzy-match "sol" (distance 2)
+   * before we ever inspect tokens.
+   */
   const tokens = line.split(/\s+/).map((w) => cleanSpeechToken(w)).filter(Boolean);
   const out: string[] = [];
   const needsFuzzy: string[] = [];
@@ -223,6 +341,16 @@ export function resolveDeckOnlyTranscript(transcript: string, vocabulary: string
     if (vocabNormToCanon.has(token)) {
       out.push(vocabNormToCanon.get(token)!);
       continue;
+    }
+    if (userAliases) {
+      const aliasTarget = userAliases[token];
+      if (aliasTarget) {
+        const canon = vocabNormToCanon.get(normalizeForMatch(aliasTarget));
+        if (canon) {
+          out.push(canon);
+          continue;
+        }
+      }
     }
     const sol = SOLFEGE_MISHEARINGS[token];
     if (sol) {
@@ -237,7 +365,10 @@ export function resolveDeckOnlyTranscript(transcript: string, vocabulary: string
   }
 
   if (needsFuzzy.length === 0) {
-    return out.length ? out.join(" ") : null;
+    if (out.length > 0) {
+      return out.join(" ");
+    }
+    return findClosestVocabMatch(line, vocabulary);
   }
 
   // Multiple unknown tokens: keep any exact matches already in `out` (e.g. "ice cream texas" → Texas).
@@ -251,7 +382,7 @@ export function resolveDeckOnlyTranscript(transcript: string, vocabulary: string
     if (combo) {
       return combo;
     }
-    return null;
+    return findClosestVocabMatch(line, vocabulary);
   }
 
   const u = needsFuzzy[0]!;
@@ -262,10 +393,55 @@ export function resolveDeckOnlyTranscript(transcript: string, vocabulary: string
     fuzzyPick = findClosestVocabMatchLongTokens(u, vocabulary);
   }
   if (!fuzzyPick) {
-    return out.length ? out.join(" ") : null;
+    if (out.length > 0) {
+      return out.join(" ");
+    }
+    return findClosestVocabMatch(line, vocabulary);
   }
   out.push(fuzzyPick);
   return out.join(" ");
+}
+
+/** Shared response shape for /api/speech-to-text (Google Cloud). */
+export function finalizeDeckSttFromAlternatives(
+  orderedAlternatives: string[],
+  phrasesForResolve: string[],
+  userAliases?: Readonly<Record<string, string>> | null
+): { transcript: string; heard: string; alternatives: string[] } {
+  const heard =
+    orderedAlternatives.find((s) => s.trim())?.trim() ??
+    (orderedAlternatives[0] ?? "").trim();
+
+  let transcript = "";
+  if (phrasesForResolve.length > 0) {
+    const candidates = orderAlternativesForUserAliases(orderedAlternatives, userAliases);
+    for (const cand of candidates) {
+      const resolved = resolveDeckOnlyTranscript(cand, phrasesForResolve, userAliases);
+      if (resolved) {
+        transcript = resolved;
+        break;
+      }
+    }
+    if (!transcript && orderedAlternatives.length > 0) {
+      const merged = resolveDeckOnlyTranscript(
+        orderedAlternatives.join(" "),
+        phrasesForResolve,
+        userAliases
+      );
+      if (merged) transcript = merged;
+    }
+    if (!transcript && orderedAlternatives.length > 0) {
+      transcript = orderedAlternatives[0] ?? "";
+    }
+  } else if (orderedAlternatives.length > 0) {
+    transcript = orderedAlternatives[0] ?? "";
+  }
+
+  return {
+    transcript,
+    heard: heard || (orderedAlternatives[0] ?? ""),
+    alternatives: orderedAlternatives.slice(0, 8),
+  };
 }
 
 /**
@@ -357,7 +533,10 @@ type SpeechRecognitionOptions = {
   vocabulary?: string[];
   /** When true with vocabulary: only accept transcripts that match the vocabulary. Ignore non-matches. */
   vocabularyOnly?: boolean;
+  /** Per-deck normalized heard → canonical answer (optional). */
+  sttAliases?: Readonly<Record<string, string>>;
   onResult: (transcript: string, isFinal: boolean) => void;
+  onHeardLine?: (line: string) => void;
   onError?: (message: string) => void;
   /** Called when recognition ends (Chrome stops after ~60s). Use to restart for continuous listening. */
   onEnd?: () => void;
@@ -375,7 +554,9 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
 
   const recognition = new SpeechRecognition();
   recognition.continuous = options.continuous ?? false;
-  recognition.interimResults = options.continuous ?? false;
+  // Must stay false while we only consume isFinal in onResult; otherwise continuous mode
+  // yields almost-only interim hypotheses and nothing ever "registers".
+  recognition.interimResults = false;
   recognition.lang = normalizeSpeechLocale(options.lang || "en");
   const hasVocabulary = (options.vocabulary?.length ?? 0) > 0;
   recognition.maxAlternatives = hasVocabulary ? 5 : 1;
@@ -385,6 +566,7 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
     : null;
 
   const vocabularyOnly = options.vocabularyOnly ?? false;
+  const sttAliases = options.sttAliases;
 
   function pickBestTranscript(alternatives: Array<{ transcript?: string }>, _isFinal: boolean): string {
     if (!alternatives?.length) return "";
@@ -397,8 +579,20 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
     }
     if (vocabularyOnly) {
       for (const t of raw) {
-        const resolved = resolveDeckOnlyTranscript(t, vocab);
+        const resolved = resolveDeckOnlyTranscript(t, vocab, sttAliases);
         if (resolved) return resolved;
+      }
+    }
+    /**
+     * Custom mappings before fuzzy / solfège heuristics — otherwise short strings like "toe"
+     * (user → "do") lose to findClosestVocabMatch("toe","sol") before aliases run.
+     */
+    if (!vocabularyOnly && sttAliases && Object.keys(sttAliases).length > 0) {
+      for (const t of raw) {
+        const applied = applyUserAliasesToTranscript(t, vocab, sttAliases);
+        if (normalizeForMatch(applied) !== normalizeForMatch(t)) {
+          return applied;
+        }
       }
     }
     for (const t of raw) {
@@ -433,8 +627,23 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
       if (first) alternatives.push(first);
     }
     const isFinal = last?.isFinal ?? true;
+    let firstNonEmptyAlt = "";
+    for (const a of alternatives) {
+      const t = String(a.transcript ?? "").trim();
+      if (t) {
+        firstNonEmptyAlt = t;
+        break;
+      }
+    }
     const transcript = pickBestTranscript(alternatives, isFinal);
-    if (transcript) {
+    const heardDbg =
+      (firstNonEmptyAlt && firstNonEmptyAlt.trim()) ||
+      (transcript && transcript.trim()) ||
+      "";
+    if (heardDbg) {
+      options.onHeardLine?.(heardDbg);
+    }
+    if (transcript || heardDbg) {
       options.onResult(transcript, isFinal);
     }
   };

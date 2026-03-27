@@ -10,7 +10,10 @@ import { speechDiag } from "@/lib/speech-diagnostics";
 export type CloudSpeechOptions = {
   lang?: string;
   vocabulary?: string[];
+  /** Normalized heard → deck answer; optional per-deck mappings from localStorage. */
+  sttAliases?: Readonly<Record<string, string>>;
   onResult: (transcript: string, isFinal: boolean) => void;
+  onHeardLine?: (line: string) => void;
   onError?: (message: string) => void;
   onEnd?: () => void;
 };
@@ -105,6 +108,9 @@ export function startCloudListening(
     if (options.vocabulary?.length) {
       formData.append("phrases", JSON.stringify(options.vocabulary));
     }
+    if (options.sttAliases && Object.keys(options.sttAliases).length > 0) {
+      formData.append("aliases", JSON.stringify(options.sttAliases));
+    }
     formData.append("lang", normalizeSpeechLocale(options.lang || "en"));
 
     try {
@@ -125,14 +131,36 @@ export function startCloudListening(
         console.warn("[speech-cloud]", msg);
         return;
       }
-      const data = (await res.json()) as { transcript?: string };
+      const data = (await res.json()) as {
+        transcript?: string;
+        heard?: string;
+        alternatives?: string[];
+      };
+      const fromAlts =
+        Array.isArray(data?.alternatives) && data.alternatives.length > 0
+          ? String(data.alternatives[0] ?? "").trim()
+          : "";
+      const heard =
+        String(data?.heard ?? "").trim() || fromAlts;
       const transcript = String(data?.transcript ?? "").trim();
-      if (!transcript) return;
+      if (!heard && !transcript) return;
       if (stopped) return;
-      if (chunkId >= lastAppliedSeq) {
+
+      let toApply = "";
+      if (transcript && chunkId >= lastAppliedSeq) {
         lastAppliedSeq = chunkId;
-        options.onResult(transcript, true);
+        toApply = transcript;
       }
+
+      /**
+       * Debug "Heard" line: prefer raw `heard`, else server `transcript`. Decoupled from
+       * `onResult` arg 1 (`toApply`) so the UI updates even when the answer box stays empty.
+       */
+      const heardLineForUi = (heard || transcript).trim();
+      if (heardLineForUi) {
+        options.onHeardLine?.(heardLineForUi);
+      }
+      options.onResult(toApply, true);
     } catch (err) {
       if (stopped) return;
       const msg =

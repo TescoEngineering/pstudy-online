@@ -11,16 +11,13 @@ export default function HomePage() {
       <header className="border-b border-stone-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
           <Logo size="md" withText />
-          <nav className="flex gap-4">
+          <nav className="flex justify-end">
             <Link
               href="/login"
               className="text-stone-600 hover:text-pstudy-primary"
             >
               {t("home.logIn")}
             </Link>
-            <a href="/dashboard" className="btn-primary cursor-pointer no-underline">
-              {t("home.getStarted")}
-            </a>
           </nav>
         </div>
       </header>
@@ -33,19 +30,22 @@ export default function HomePage() {
           {t("home.subtitle")}
         </p>
         <div className="flex flex-wrap justify-center gap-4">
-          <a
-            href="/dashboard"
+          <Link
+            href="/login"
             className="btn-primary cursor-pointer text-lg no-underline"
           >
-            {t("home.openApp")}
-          </a>
-          <a
-            href="/import"
+            {t("home.startFreeTrial")}
+          </Link>
+          <Link
+            href="/login"
             className="btn-secondary cursor-pointer text-lg no-underline"
           >
-            {t("home.importTxt")}
-          </a>
+            {t("home.logIn")}
+          </Link>
         </div>
+        <p className="mx-auto mt-6 max-w-xl text-sm text-stone-500">
+          {t("home.trialPricingLine")}
+        </p>
 
         <section className="mt-20 text-left">
           <h2 className="mb-6 text-2xl font-semibold text-stone-800">
@@ -58,6 +58,8 @@ export default function HomePage() {
             <li>✓ {t("home.feature4")}</li>
             <li>✓ {t("home.feature5")}</li>
             <li>✓ {t("home.feature6")}</li>
+            <li>✓ {t("home.feature7")}</li>
+            <li>✓ {t("home.feature8")}</li>
           </ul>
         </section>
       </main>

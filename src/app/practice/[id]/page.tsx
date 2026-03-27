@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useTranslation } from "@/lib/i18n";
 import { useToast } from "@/components/Toast";
@@ -16,7 +16,13 @@ import {
   isSpeechRecognitionSupported,
   prepareSpeechSynthesis,
   resolveDeckOnlyTranscript,
+  applyUserAliasesToTranscript,
 } from "@/lib/speech";
+import {
+  loadDeckSttAliases,
+  normalizeSttAliasKey,
+  saveDeckSttAliases,
+} from "@/lib/speech-deck-aliases";
 import { startCloudListening } from "@/lib/speech-cloud";
 import { SPEECH_LANGUAGES } from "@/lib/speech-languages";
 import {
@@ -41,6 +47,9 @@ function normalizeAnswer(s: string): string {
     .replace(/\s+/g, " ")
     .replace(/[.,;:!?]+$/g, ""); // Strip trailing punctuation (speech recognition often adds periods)
 }
+
+/** Don't strip question echoes shorter than this — avoids "What's…" matching only "W" and mangling "Washington". */
+const MIN_QUESTION_ECHO_PREFIX_LEN = 3;
 
 export default function PracticePage() {
   const params = useParams();
@@ -68,11 +77,31 @@ export default function PracticePage() {
   const [speakMode, setSpeakMode] = useState(false);
   const [speechLang, setSpeechLang] = useState("en");
   const [vocabularyBias, setVocabularyBias] = useState(false);
-  const [cloudSttAvailable, setCloudSttAvailable] = useState(false);
+  const [showSttHeardDebug, setShowSttHeardDebug] = useState(false);
+  const [lastHeardRaw, setLastHeardRaw] = useState("");
+  /** Stable STT→UI bridge so async chunk callbacks always hit the latest setLastHeardRaw. */
+  const heardLineDispatch = useRef<(line: string) => void>(() => {});
+  heardLineDispatch.current = (line: string) => {
+    const t = line.trim();
+    if (t) setLastHeardRaw(t);
+  };
+  const onHeardLineStable = useCallback((line: string) => {
+    heardLineDispatch.current(line);
+  }, []);
+  const [sttGoogle, setSttGoogle] = useState(false);
+  const cloudSttAvailable = sttGoogle;
+  /** Per-deck STT heard → answer; optional advanced mappings (localStorage). */
+  const [sttAliasRows, setSttAliasRows] = useState<{ from: string; to: string }[]>([]);
+  const [sttAliasesHydrated, setSttAliasesHydrated] = useState(false);
+  /** While open, practice mic/STT is off so mappings don’t fight the exercise. */
+  const [speechMappingPanelOpen, setSpeechMappingPanelOpen] = useState(false);
+  const speechMappingPanelOpenRef = useRef(false);
+  speechMappingPanelOpenRef.current = speechMappingPanelOpen;
   const [isListening, setIsListening] = useState(false);
   const [flashcardFilled, setFlashcardFilled] = useState<(string | null)[]>([]);
   const [flashcardRevealed, setFlashcardRevealed] = useState(false);
   const stopListeningRef = useRef<(() => void) | null>(null);
+  const skipSttAliasSaveRef = useRef(false);
   const answerRef = useRef(answer);
   answerRef.current = answer;
   const lastSpokenForRef = useRef<string | null>(null);
@@ -83,6 +112,71 @@ export default function PracticePage() {
   speakModeRef.current = speakMode;
   showResultRef.current = showResult;
   modeRef.current = mode;
+
+  const deckAnswerVocabulary = useMemo(() => {
+    if (!list.length) return [];
+    return [
+      ...new Set(
+        list
+          .flatMap((it) => [
+            String(it.description ?? "").trim(),
+            String(it.explanation ?? "").trim(),
+          ])
+          .filter(Boolean)
+      ),
+    ].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }, [list]);
+
+  const deckSttAliasesRecord = useMemo(() => {
+    const r: Record<string, string> = {};
+    for (const row of sttAliasRows) {
+      const nk = normalizeSttAliasKey(row.from);
+      if (nk && row.to.trim()) r[nk] = row.to.trim();
+    }
+    return r;
+  }, [sttAliasRows]);
+
+  useEffect(() => {
+    skipSttAliasSaveRef.current = true;
+    const m = loadDeckSttAliases(id);
+    setSttAliasRows(Object.entries(m).map(([from, to]) => ({ from, to })));
+    setSttAliasesHydrated(true);
+  }, [id]);
+
+  useEffect(() => {
+    if (!sttAliasesHydrated) return;
+    if (skipSttAliasSaveRef.current) {
+      skipSttAliasSaveRef.current = false;
+      return;
+    }
+    saveDeckSttAliases(id, deckSttAliasesRecord);
+  }, [id, deckSttAliasesRecord, sttAliasesHydrated]);
+
+  /** Fill first empty “What STT heard” from the live Heard line; add one row if none exist yet. */
+  useEffect(() => {
+    if (speechMappingPanelOpen) return;
+    const heard = lastHeardRaw.trim();
+    if (!heard) return;
+    setSttAliasRows((prev) => {
+      const emptyIdx = prev.findIndex((r) => !r.from.trim());
+      if (emptyIdx >= 0) {
+        const next = [...prev];
+        next[emptyIdx] = { ...next[emptyIdx], from: heard };
+        return next;
+      }
+      if (prev.length === 0) {
+        return [{ from: heard, to: "" }];
+      }
+      return prev;
+    });
+  }, [lastHeardRaw, speechMappingPanelOpen]);
+
+  useEffect(() => {
+    if (!speechMappingPanelOpen) return;
+    stopListeningRef.current?.();
+    setIsListening(false);
+    stopListeningRef.current = null;
+  }, [speechMappingPanelOpen]);
 
   useEffect(() => {
     async function load() {
@@ -113,10 +207,13 @@ export default function PracticePage() {
     void (async () => {
       try {
         const r = await fetch("/api/speech-to-text/status");
-        const d = (await r.json()) as { available?: boolean };
-        setCloudSttAvailable(!!d?.available);
+        const d = (await r.json()) as {
+          available?: boolean;
+          google?: boolean;
+        };
+        setSttGoogle(!!d.google);
       } catch {
-        setCloudSttAvailable(false);
+        setSttGoogle(false);
       }
     })();
   }, []);
@@ -152,6 +249,10 @@ export default function PracticePage() {
     }
   }, [current?.id, mode]);
 
+  useEffect(() => {
+    setLastHeardRaw("");
+  }, [current?.id]);
+
   // Stop listening when result shown, speak off, or flashcard revealed
   useEffect(() => {
     if (
@@ -175,7 +276,8 @@ export default function PracticePage() {
       (mode !== "straight" && !isFlashcard) ||
       !speakMode ||
       showResult ||
-      (isFlashcard && flashcardRevealed)
+      (isFlashcard && flashcardRevealed) ||
+      speechMappingPanelOpenRef.current
     )
       return;
     stopListeningRef.current?.();
@@ -197,7 +299,10 @@ export default function PracticePage() {
     const vocabulary = deckVocabulary.length ? deckVocabulary : undefined;
 
     const handleResult = (transcript: string, isFinal: boolean) => {
-      if (!isFinal || !transcript.trim()) return;
+      if (!isFinal) return;
+
+      if (!transcript.trim()) return;
+
       if (isFlashcard) {
         const words = getExplanationWords(String(current?.explanation ?? ""));
         const prev = flashcardFilledRef.current;
@@ -207,10 +312,12 @@ export default function PracticePage() {
       }
       let newTranscript = transcript.trim();
       const q = questionTextRef.current.trim();
-      // Deck answers are short phrases; stripping TTS/question prefixes often eats the whole utterance
-      // on a retry (e.g. question text is a prefix of the state name) or corrupts it ("Wash" → "ington").
+      // Deck answers are short phrases; stripping TTS/question echo from the start of the transcript helps
+      // when the mic picks up the spoken question — but partial prefixes (e.g. "W" from "What's…") must not
+      // match real answers like "Washington" (see MIN_QUESTION_ECHO_PREFIX_LEN).
       if (q && !vocabularyBias) {
         for (let i = q.length; i >= 1; i--) {
+          if (i < MIN_QUESTION_ECHO_PREFIX_LEN && i < q.length) continue;
           const prefix = q.slice(0, i);
           if (newTranscript.toLowerCase().startsWith(prefix.toLowerCase())) {
             newTranscript = newTranscript.slice(i).trim();
@@ -220,10 +327,24 @@ export default function PracticePage() {
       }
       if (!newTranscript) return;
       if (vocabularyBias && vocabulary?.length) {
-        const resolved = resolveDeckOnlyTranscript(newTranscript, vocabulary);
+        const resolved = resolveDeckOnlyTranscript(
+          newTranscript,
+          vocabulary,
+          deckSttAliasesRecord
+        );
         if (resolved === null) return;
         setAnswer(resolved);
         return;
+      }
+      if (
+        vocabulary?.length &&
+        Object.keys(deckSttAliasesRecord).length > 0
+      ) {
+        newTranscript = applyUserAliasesToTranscript(
+          newTranscript,
+          vocabulary,
+          deckSttAliasesRecord
+        );
       }
       const currentAnswer = answerRef.current.trim();
       if (currentAnswer === "" || newTranscript === currentAnswer) {
@@ -253,6 +374,7 @@ export default function PracticePage() {
     };
 
     const handleEnd = () => {
+      if (speechMappingPanelOpenRef.current) return;
       if (
         speakModeRef.current &&
         !showResultRef.current &&
@@ -268,12 +390,18 @@ export default function PracticePage() {
     if (useVocabulary && vocabulary?.length) {
       try {
         const r = await fetch("/api/speech-to-text/status");
-        const d = (await r.json()) as { available?: boolean };
-        if (d?.available) {
+        const d = (await r.json()) as {
+          available?: boolean;
+          google?: boolean;
+        };
+
+        if (d.google) {
           stop = startCloudListening({
             lang: speechLang,
             vocabulary,
+            sttAliases: deckSttAliasesRecord,
             onResult: handleResult,
+            onHeardLine: onHeardLineStable,
             onError: handleError,
             onEnd: handleEnd,
           });
@@ -294,8 +422,13 @@ export default function PracticePage() {
         lang: speechLang,
         vocabulary,
         vocabularyOnly: useVocabulary,
+        sttAliases:
+          useVocabulary || Object.keys(deckSttAliasesRecord).length > 0
+            ? deckSttAliasesRecord
+            : undefined,
         continuous: true,
         onResult: handleResult,
+        onHeardLine: onHeardLineStable,
         onError: handleError,
         onEnd: handleEnd,
       });
@@ -307,7 +440,21 @@ export default function PracticePage() {
     } else {
       stopListeningRef.current = stop;
     }
-  }, [mode, speakMode, showResult, speechLang, vocabularyBias, list, promptMode, current, flashcardRevealed, toast, t]);
+  }, [
+    mode,
+    speakMode,
+    showResult,
+    speechLang,
+    vocabularyBias,
+    list,
+    promptMode,
+    current,
+    flashcardRevealed,
+    toast,
+    t,
+    onHeardLineStable,
+    deckSttAliasesRecord,
+  ]);
 
   // When item loads: if listenMode, speak the question (only once per item). If speakMode (and straight/flashcard), start listening after TTS ends.
   useEffect(() => {
@@ -328,7 +475,18 @@ export default function PracticePage() {
     } else {
       startSpeakListening();
     }
-  }, [current, listenMode, speakMode, mode, promptMode, showResult, flashcardRevealed, startSpeakListening, speechLang]);
+  }, [
+    current,
+    listenMode,
+    speakMode,
+    mode,
+    promptMode,
+    showResult,
+    flashcardRevealed,
+    startSpeakListening,
+    speechLang,
+    speechMappingPanelOpen,
+  ]);
 
   useEffect(() => {
     if (!current || mode !== "multiple-choice") return;
@@ -598,6 +756,19 @@ export default function PracticePage() {
               <span className="text-sm text-stone-600">{t("practice.considerOnlyDeckAnswers")}</span>
             </label>
           )}
+          {(mode === "straight" || mode === "flashcard") &&
+            speakMode &&
+            !(mode === "straight" && vocabularyBias) && (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showSttHeardDebug}
+                onChange={(e) => setShowSttHeardDebug(e.target.checked)}
+                className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+              />
+              <span className="text-sm text-stone-500">{t("practice.showSttHeardDebug")}</span>
+            </label>
+          )}
           <label className="flex items-center gap-2">
             <span className="text-sm text-stone-600">{t("practice.speechLanguage")}:</span>
             <select
@@ -612,7 +783,94 @@ export default function PracticePage() {
               ))}
             </select>
           </label>
-          <p className="w-full text-xs text-stone-500">{t("practice.speechBrowserTip")}</p>
+          {mode === "straight" && speakMode && (
+            <details
+              className="mt-3 w-full rounded border border-stone-200 bg-stone-50/90 px-3 py-2"
+              onToggle={(e) => {
+                setSpeechMappingPanelOpen((e.currentTarget as HTMLDetailsElement).open);
+              }}
+            >
+              <summary className="cursor-pointer select-none text-sm font-medium text-stone-700">
+                {t("practice.deckSttAliasesSummary")}
+              </summary>
+              <p className="mt-2 text-xs text-amber-800/90">{t("practice.deckSttAliasesPausesExercise")}</p>
+              <p className="mt-2 text-xs text-stone-500">{t("practice.deckSttAliasesHint")}</p>
+              <div className="mt-3 space-y-2">
+                {sttAliasRows.map((row, i) => (
+                  <div key={i} className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      value={row.from}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setSttAliasRows((rows) =>
+                          rows.map((r, j) => (j === i ? { ...r, from: v } : r))
+                        );
+                      }}
+                      placeholder={t("practice.deckSttAliasesHeardPlaceholder")}
+                      className="min-w-[8rem] flex-1 rounded border border-stone-300 px-2 py-1 text-sm"
+                      aria-label={t("practice.deckSttAliasesHeardPlaceholder")}
+                    />
+                    <span className="text-stone-400" aria-hidden>
+                      →
+                    </span>
+                    <select
+                      value={row.to}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setSttAliasRows((rows) =>
+                          rows.map((r, j) => (j === i ? { ...r, to: v } : r))
+                        );
+                      }}
+                      className="min-w-[6rem] flex-1 rounded border border-stone-300 px-2 py-1 text-sm"
+                      aria-label={t("practice.deckSttAliasesPickAnswer")}
+                    >
+                      <option value="">{t("practice.deckSttAliasesPickAnswer")}</option>
+                      {deckAnswerVocabulary.map((w) => (
+                        <option key={w} value={w}>
+                          {w}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSttAliasRows((rows) => rows.filter((_, j) => j !== i))
+                      }
+                      className="rounded px-2 py-1 text-xs text-stone-500 hover:bg-stone-200"
+                    >
+                      {t("common.remove")}
+                    </button>
+                  </div>
+                ))}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSttAliasRows((rows) => [...rows, { from: "", to: "" }])
+                    }
+                    className="rounded border border-stone-300 bg-white px-2 py-1 text-xs text-stone-700 hover:bg-stone-100"
+                  >
+                    {t("practice.deckSttAliasesAdd")}
+                  </button>
+                  {lastHeardRaw.trim() ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSttAliasRows((rows) => [
+                          ...rows,
+                          { from: lastHeardRaw.trim(), to: "" },
+                        ])
+                      }
+                      className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-stone-800 hover:bg-amber-100"
+                    >
+                      {t("practice.deckSttAliasesFromLastHeard")}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </details>
+          )}
         </div>
 
         {repeatMistakesMode && (
@@ -653,36 +911,53 @@ export default function PracticePage() {
         {!showResult ? (
           <>
             {mode === "straight" ? (
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={answer}
-                  onChange={(e) => {
-                    const newVal = e.target.value;
-                    setAnswer(newVal);
-                    if (speakMode && newVal === "" && stopListeningRef.current) {
-                      stopListeningRef.current();
-                      startSpeakListening();
-                    }
-                  }}
-                  placeholder={t("practice.yourAnswer")}
-                  className="flex-1 rounded-lg border border-stone-300 px-4 py-3 text-lg focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary"
-                  autoFocus
-                />
-                {speakMode && (
-                  <span
-                    className={`flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-sm ${
-                      isListening
-                        ? "bg-emerald-100 text-emerald-700"
-                        : "bg-stone-100 text-stone-500"
-                    }`}
-                    title={isListening ? "Listening... Press Enter to submit" : "Speak mode on"}
-                  >
-                    <span className="h-2 w-2 rounded-full bg-current" />
-                    {isListening ? "Listening" : "Speak on"}
-                  </span>
+              <>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={answer}
+                    onChange={(e) => {
+                      const newVal = e.target.value;
+                      setAnswer(newVal);
+                      if (speakMode && newVal === "" && stopListeningRef.current) {
+                        stopListeningRef.current();
+                        startSpeakListening();
+                      }
+                    }}
+                    placeholder={t("practice.yourAnswer")}
+                    className="flex-1 rounded-lg border border-stone-300 px-4 py-3 text-lg focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary"
+                    autoFocus
+                  />
+                  {speakMode && (
+                    <span
+                      className={`flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-sm ${
+                        isListening
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-stone-100 text-stone-500"
+                      }`}
+                      title={isListening ? "Listening... Press Enter to submit" : "Speak mode on"}
+                    >
+                      <span className="h-2 w-2 rounded-full bg-current" />
+                      {isListening ? "Listening" : "Speak on"}
+                    </span>
+                  )}
+                </div>
+                {speakMode &&
+                  (showSttHeardDebug || vocabularyBias || speechMappingPanelOpen) && (
+                  <div className="mt-2">
+                    <label className="mb-1 block text-xs font-medium text-stone-500">
+                      {t("practice.sttHeardRawLabel")}
+                    </label>
+                    <textarea
+                      readOnly
+                      rows={2}
+                      value={lastHeardRaw}
+                      placeholder="—"
+                      className="w-full resize-y rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 font-mono text-sm text-stone-800 focus:outline-none"
+                    />
+                  </div>
                 )}
-              </div>
+              </>
             ) : mode === "flashcard" ? (
               <div className="space-y-4">
                 <div className="rounded-lg border-2 border-stone-200 bg-white p-4">
@@ -708,6 +983,20 @@ export default function PracticePage() {
                       <span className="h-2 w-2 rounded-full bg-current" />
                       {isListening ? "Listening" : "Speak on"}
                     </span>
+                  )}
+                  {speakMode && showSttHeardDebug && !flashcardRevealed && (
+                    <div className="mt-1 w-full min-w-[12rem]">
+                      <label className="mb-1 block text-xs font-medium text-stone-500">
+                        {t("practice.sttHeardRawLabel")}
+                      </label>
+                      <textarea
+                        readOnly
+                        rows={2}
+                        value={lastHeardRaw}
+                        placeholder="—"
+                        className="w-full max-w-xl resize-y rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 font-mono text-sm text-stone-800 focus:outline-none"
+                      />
+                    </div>
                   )}
                   {!flashcardRevealed ? (
                     <button onClick={revealFlashcard} className="btn-primary">
