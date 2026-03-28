@@ -85,6 +85,9 @@ export default function ExamsListPage() {
             <Link href="/dashboard" className="text-stone-600 hover:text-pstudy-primary">
               {t("result.backToDashboard")}
             </Link>
+            <Link href="/help" className="text-stone-600 hover:text-pstudy-primary">
+              {t("help.nav")}
+            </Link>
             <Link href="/exams/new" className="btn-primary text-sm">
               {t("exam.newExam")}
             </Link>

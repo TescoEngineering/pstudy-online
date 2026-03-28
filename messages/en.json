@@ -36,7 +36,7 @@
     "feature6": "Import existing PSTUDY .txt decks",
     "feature7": "Works on any device in the browser",
     "feature8": "No installation — always up to date",
-    "footerBrand": "PSTUDY · Tesco Engineering bv",
+    "footerBrand": "PSTUDY",
     "website": "www.pstudy.be"
   },
   "login": {
@@ -82,7 +82,7 @@
     "untitledDeck": "Untitled deck"
   },
   "deck": {
-    "backToDashboard": "← Dashboard",
+    "backToDashboard": "← My decks",
     "editDeck": "Edit deck",
     "field": "Field",
     "topic": "Topic",
@@ -102,13 +102,18 @@
     "saving": "Saving..."
   },
   "practice": {
+    "exerciseSetup": "Exercise setup",
     "askFor": "Ask for",
     "description": "Description",
     "explanation": "Explanation",
     "answerType": "Answer type",
     "straightAnswer": "Straight answer",
     "multipleChoice": "Multiple choice",
-    "flashcard": "Flashcard (fill by speaking)",
+    "flashcard": "Flashcard",
+    "flashcardSttEngine": "Flashcard speech",
+    "flashcardSttGoogle": "Google Cloud (phrase hints)",
+    "flashcardSttBrowser": "Browser only (Web Speech)",
+    "flashcardSttGoogleUnavailable": "Google is not configured on this server — the browser is used until you set credentials.",
     "order": "Order",
     "normalOrder": "Normal order",
     "randomOrder": "Random order",
@@ -141,7 +146,7 @@
   },
   "result": {
     "complete": "Practice complete",
-    "backToDashboard": "Back to dashboard",
+    "backToDashboard": "My decks",
     "summary": "{correct} correct, {wrong} wrong — {total} total"
   },
   "import": {
@@ -233,6 +238,9 @@
     "revokeInvite": "Revoke",
     "reissueOk": "Reissued. New link ready.",
     "revokeOk": "Revoked.",
+    "deleteAssignedExamTitle": "Delete this exam from your list?",
+    "deleteAssignedExamMessage": "Your invite link will stop working and this exam will disappear from My assigned exams. The organiser will see the invitation as cancelled. To take the exam again, they must send a new invite.",
+    "deleteAssignedExamSuccess": "Exam removed from your list.",
     "deleteExam": "Delete exam",
     "deleteExamTitle": "Delete this exam?",
     "deleteExamMessage": "This removes the exam assignment, all invitation links, and stored results. Your deck is not deleted. This cannot be undone.",
@@ -245,6 +253,43 @@
       "notEnoughChoices": "Need at least two different answer options (correct + distractors).",
       "emptyExpectedForStraight": "Missing expected answer for straight-answer grading."
     }
+  },
+  "help": {
+    "nav": "Help",
+    "navHome": "Home",
+    "pageTitle": "Help — using PSTUDY",
+    "intro": "PSTUDY Online lets you build study decks, practice in different modes (including voice), share decks with the community, and run timed exams. This page summarises the main features and how to get started.",
+    "tocLabel": "On this page",
+    "tocHeading": "On this page",
+    "sectionGettingStarted": "Getting started",
+    "bodyGettingStarted": "Create an account or log in. Your **My decks** page lists every deck you own. Use **New deck** to start empty, or **Import .txt** to load a PSTUDY text file. Open a deck to edit items (question and answer text, optional instruction line, picture, and multiple-choice distractors for exams).\n\nUse the header links to open **Community** (public decks from others), **My assigned exams** (invitations sent to your email), **Import .txt**, and **Exams** (exams you created).",
+    "sectionDecks": "Decks and the editor",
+    "bodyDecks": "Each deck has **items**. The **description** and **explanation** fields are the main question and answer sides; which one is shown as the prompt in practice depends on **Ask for** (description vs explanation) on the practice screen.\n\nYou can set **Field** and **Topic** for organisation and community browsing. **Share with community** makes a copy discoverable on the Community page (others copy it into their own collection; your original stays yours).\n\n**Create exam** and **Practice** appear above the item table. Pictures upload to storage and autosave with the rest of the deck.",
+    "sectionPractice": "Practice mode",
+    "bodyPractice": "From a deck, open **Practice**. Choose **Straight answer**, **Multiple choice**, or **Flashcard**.\n\n**Order** can be normal or random. **Listen** reads the question (and instruction when relevant). **Speak** uses the microphone for answers where supported; optional cloud speech (when the server is configured) can restrict recognition to answers in the deck.\n\n**Exercise setup** can be collapsed to focus on the question card. After you submit an answer, the result panel shows correct/incorrect; press **Next** (or Enter) to continue. **Repeat mistakes** appears when you finish a round with wrong answers so you can drill only those items.\n\nWhile results are shown, the question image and text stay on the item you just answered so nothing jumps ahead early.",
+    "sectionImport": "Import .txt",
+    "bodyImport": "Use **Import .txt** from the header to upload a classic PSTUDY plain-text deck. The importer creates a new deck in your account. Fix any reported errors in the editor after import.",
+    "sectionExams": "Exams",
+    "bodyExams": "Under **Exams**, create a timed exam from one of your decks. You choose duration, exam type (multiple choice or straight answer), how questions are phrased, and invite people by **email**. Each invite gets a private link.\n\n**My assigned exams** lists invites that match your logged-in email. Open an exam from there or from the link in your mail. Submitting ends the attempt; you can review as allowed by the exam settings.\n\nOrganisers manage invites and results on the exam detail page; examinees can **delete** an assignment from their list (the invite is revoked), which is equivalent to declining the invitation.",
+    "sectionCommunity": "Community decks",
+    "bodyCommunity": "**Community** lists decks that authors marked as shared. Search by title, field, or topic. **Copy to my decks** duplicates a deck into your account so you can edit and practice it privately.",
+    "sectionSpeech": "Speech and browsers",
+    "bodySpeech": "Speech recognition works best in **Chrome** or **Edge**. Practice **Speak** and **Listen** may be limited on other browsers. If your host enables Google Cloud speech, deck authors can use options that favour recognition of answers in the deck.\n\nFlashcards can use browser-only or Google speech for filling gaps—see the flashcard speech control in practice when flashcard mode is on.",
+    "sectionMoreHelp": "More information",
+    "bodyMoreHelp": "Product and company details are available on the marketing site.\n\nHome page: link from the logo or **Home** above. Account issues: use **Log in** and password reset on the sign-in page.",
+    "sectionContact": "Contact us",
+    "bodyContact": "Send a message about PSTUDY Online, technical issues, or feedback. We normally reply by email.",
+    "contactName": "Name (optional)",
+    "contactEmail": "Your email",
+    "contactSubject": "Subject (optional)",
+    "contactMessage": "Message",
+    "contactSubmit": "Send message",
+    "contactSending": "Sending…",
+    "contactSuccess": "Message sent. Thank you!",
+    "contactError": "Could not send your message.",
+    "contactNotConfigured": "The contact form is not configured on this server yet.",
+    "contactMailtoHint": "Prefer email? Contact us at",
+    "contactHoneypotLabel": "Leave blank"
   },
   "banner": {
     "underConstruction": "PSTUDY Online is under construction. Features may change."

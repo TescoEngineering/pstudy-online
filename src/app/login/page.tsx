@@ -262,6 +262,10 @@ export default function LoginPage() {
           <Link href="/" className="text-pstudy-primary hover:underline">
             {t("login.backToHome")}
           </Link>
+          {" · "}
+          <Link href="/help" className="text-pstudy-primary hover:underline">
+            {t("help.nav")}
+          </Link>
         </p>
       </div>
     </div>

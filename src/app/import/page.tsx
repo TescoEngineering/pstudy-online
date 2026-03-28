@@ -132,11 +132,16 @@ export default function ImportPage() {
   return (
     <div className="min-h-screen bg-stone-50">
       <header className="border-b border-stone-200 bg-white">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-4">
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-4 py-4">
           <Logo size="sm" withText />
-          <Link href="/dashboard" className="text-stone-600 hover:text-pstudy-primary">
-            {t("dashboard.myDecks")}
-          </Link>
+          <nav className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm">
+            <Link href="/dashboard" className="text-stone-600 hover:text-pstudy-primary">
+              {t("dashboard.myDecks")}
+            </Link>
+            <Link href="/help" className="text-stone-600 hover:text-pstudy-primary">
+              {t("help.nav")}
+            </Link>
+          </nav>
         </div>
       </header>
 

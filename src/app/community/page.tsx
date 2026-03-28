@@ -77,6 +77,9 @@ export default function CommunityPage() {
             <Link href="/import" className="text-stone-600 hover:text-pstudy-primary">
               {t("dashboard.importTxt")}
             </Link>
+            <Link href="/help" className="text-stone-600 hover:text-pstudy-primary">
+              {t("help.nav")}
+            </Link>
           </nav>
         </div>
       </header>

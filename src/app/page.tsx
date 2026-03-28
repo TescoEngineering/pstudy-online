@@ -8,10 +8,15 @@ export default function HomePage() {
   const { t } = useTranslation();
   return (
     <div className="min-h-screen bg-gradient-to-b from-teal-50 to-stone-100">
-      <header className="border-b border-stone-200 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-          <Logo size="md" withText />
-          <nav className="flex justify-end">
+      <header className="border-b border-stone-200 bg-white">
+        <div className="mx-auto flex max-w-4xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:py-4">
+          <div className="shrink-0">
+            <Logo size="sm" withText />
+          </div>
+          <nav className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm sm:justify-end">
+            <Link href="/help" className="text-stone-600 hover:text-pstudy-primary">
+              {t("help.nav")}
+            </Link>
             <Link
               href="/login"
               className="text-stone-600 hover:text-pstudy-primary"

@@ -16,6 +16,11 @@ export type CloudSpeechOptions = {
   onHeardLine?: (line: string) => void;
   onError?: (message: string) => void;
   onEnd?: () => void;
+  /**
+   * When this returns true, chunk upload results are dropped (practice advanced or mic stopped).
+   * Prevents late responses from touching React state after dozens of item transitions.
+   */
+  shouldIgnoreResults?: () => boolean;
 };
 
 const CHUNK_MS = 1200;
@@ -145,6 +150,7 @@ export function startCloudListening(
       const transcript = String(data?.transcript ?? "").trim();
       if (!heard && !transcript) return;
       if (stopped) return;
+      if (options.shouldIgnoreResults?.()) return;
 
       let toApply = "";
       if (transcript && chunkId >= lastAppliedSeq) {

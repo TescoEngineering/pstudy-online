@@ -36,7 +36,7 @@
     "feature6": "Importa mazos PSTUDY .txt existentes",
     "feature7": "Funciona en cualquier dispositivo en el navegador",
     "feature8": "Sin instalación — siempre actualizado",
-    "footerBrand": "PSTUDY · Tesco Engineering bv",
+    "footerBrand": "PSTUDY",
     "website": "www.pstudy.be"
   },
   "login": {
@@ -82,7 +82,7 @@
     "untitledDeck": "Mazo sin título"
   },
   "deck": {
-    "backToDashboard": "← Panel",
+    "backToDashboard": "← Mis mazos",
     "editDeck": "Editar mazo",
     "field": "Área",
     "topic": "Tema",
@@ -102,13 +102,18 @@
     "saving": "Guardando..."
   },
   "practice": {
+    "exerciseSetup": "Configuración del ejercicio",
     "askFor": "Preguntar por",
     "description": "Descripción",
     "explanation": "Explicación",
     "answerType": "Tipo de respuesta",
     "straightAnswer": "Respuesta directa",
     "multipleChoice": "Test",
-    "flashcard": "Tarjeta (rellenar hablando)",
+    "flashcard": "Tarjeta",
+    "flashcardSttEngine": "Voz en tarjetas",
+    "flashcardSttGoogle": "Google Cloud (pistas)",
+    "flashcardSttBrowser": "Solo navegador (Web Speech)",
+    "flashcardSttGoogleUnavailable": "Google no está configurado — se usará el navegador.",
     "order": "Orden",
     "normalOrder": "Orden normal",
     "randomOrder": "Aleatorio",
@@ -130,7 +135,7 @@
   },
   "result": {
     "complete": "Práctica completada",
-    "backToDashboard": "Volver al panel",
+    "backToDashboard": "Mis mazos",
     "summary": "{correct} correctas, {wrong} incorrectas — {total} total"
   },
   "import": {

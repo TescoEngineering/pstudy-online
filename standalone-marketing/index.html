@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PSTUDY</title>
+    <!--
+      DEPLOYMENT (Cloud86 / static host):
+      1. PSTUDY_ONLINE_BASE defaults to https://pstudy-web.vercel.app — change if you use a custom domain later.
+      2. Optionally copy public/logo.jpg from the Next project next to this file and keep <img src="logo.jpg" />.
+      3. Upload this index.html (and optional logo.jpg) or paste sections into your CMS HTML block.
+    -->
+    <style>
+      :root {
+        --pstudy-primary: #0d9488;
+        --pstudy-dark: #0f766e;
+        --stone-50: #fafaf9;
+        --stone-200: #e7e5e4;
+        --stone-500: #78716c;
+        --stone-600: #57534e;
+        --stone-800: #292524;
+        --stone-900: #1c1917;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        color: var(--stone-900);
+        background: linear-gradient(to bottom, #f0fdfa, var(--stone-50));
+        min-height: 100vh;
+        -webkit-font-smoothing: antialiased;
+      }
+      .header {
+        border-bottom: 1px solid var(--stone-200);
+        background: #fff;
+      }
+      .header-inner {
+        max-width: 56rem;
+        margin: 0 auto;
+        padding: 0.75rem 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      @media (min-width: 640px) {
+        .header-inner {
+          flex-direction: row;
+          align-items: center;
+          justify-content: space-between;
+          padding: 1rem;
+          gap: 1rem;
+        }
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        text-decoration: none;
+        color: var(--stone-900);
+        flex-shrink: 0;
+      }
+      .brand img {
+        height: 2.25rem;
+        width: auto;
+        max-width: 180px;
+        object-fit: contain;
+        object-position: left;
+      }
+      .brand-text {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--pstudy-primary);
+      }
+      .nav {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem 1rem;
+        font-size: 0.875rem;
+      }
+      @media (min-width: 640px) {
+        .nav {
+          justify-content: flex-end;
+        }
+      }
+      .nav a {
+        color: var(--stone-600);
+        text-decoration: none;
+      }
+      .nav a:hover {
+        color: var(--pstudy-primary);
+      }
+      main {
+        max-width: 56rem;
+        margin: 0 auto;
+        padding: 4rem 1rem;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 1rem;
+        font-size: 2.25rem;
+        font-weight: 700;
+        letter-spacing: -0.025em;
+        line-height: 1.1;
+      }
+      @media (min-width: 768px) {
+        h1 {
+          font-size: 3rem;
+        }
+      }
+      .subtitle {
+        margin: 0 0 2.5rem;
+        font-size: 1.125rem;
+        color: var(--stone-600);
+        line-height: 1.6;
+      }
+      .cta-row {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 1rem;
+      }
+      .btn {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        border-radius: 0.5rem;
+        font-size: 1.125rem;
+        font-weight: 500;
+        text-decoration: none;
+        cursor: pointer;
+        border: none;
+        font-family: inherit;
+      }
+      .btn-primary {
+        background: var(--pstudy-primary);
+        color: #fff;
+        box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+      }
+      .btn-primary:hover {
+        background: var(--pstudy-dark);
+      }
+      .btn-secondary {
+        background: #fff;
+        color: #44403c;
+        border: 1px solid #d6d3d1;
+        box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+      }
+      .btn-secondary:hover {
+        background: var(--stone-50);
+      }
+      .trial-note {
+        margin: 1.5rem auto 0;
+        max-width: 36rem;
+        font-size: 0.875rem;
+        color: var(--stone-500);
+      }
+      .features {
+        margin-top: 5rem;
+        text-align: left;
+      }
+      .features h2 {
+        margin: 0 0 1.5rem;
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--stone-800);
+      }
+      .features ul {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 0.75rem;
+        color: var(--stone-600);
+      }
+      @media (min-width: 768px) {
+        .features ul {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      footer {
+        border-top: 1px solid var(--stone-200);
+        padding: 1.5rem 1rem;
+        text-align: center;
+        font-size: 0.875rem;
+        color: var(--stone-500);
+      }
+      footer a {
+        color: var(--pstudy-primary);
+        text-decoration: none;
+      }
+      footer a:hover {
+        text-decoration: underline;
+      }
+    </style>
+    <script>
+      window.PSTUDY_ONLINE_BASE = "https://pstudy-web.vercel.app";
+    </script>
+  </head>
+  <body>
+    <header class="header">
+      <div class="header-inner">
+        <a class="brand" href="/" aria-label="PSTUDY home">
+          <img src="logo.jpg" alt="PSTUDY" onerror="this.style.display='none';document.getElementById('brand-fallback').style.display='block'" />
+          <span id="brand-fallback" class="brand-text" style="display: none">PSTUDY</span>
+        </a>
+        <nav class="nav">
+          <a data-app="/help" href="#">Help</a>
+          <a data-app="/login" href="#">Log in</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <h1>Study more effectively</h1>
+      <p class="subtitle">
+        Build exercises for languages, vocabulary, or any subject. Practice with straight answer, flashcards, or
+        multiple choice; answer by typing or by voice; take timed exams — all in your browser.
+      </p>
+      <div class="cta-row">
+        <a data-app="/login" class="btn btn-primary" href="#">Start free trial</a>
+        <a data-app="/login" class="btn btn-secondary" href="#">Log in</a>
+      </div>
+      <p class="trial-note">
+        30-day free trial, then €x/month. The exact amount x is always confirmed before you subscribe.
+      </p>
+
+      <section class="features">
+        <h2>Features</h2>
+        <ul>
+          <li>✓ Straight answer, flashcards, and multiple choice</li>
+          <li>✓ Flashcards with listen mode and speech-friendly gaps</li>
+          <li>✓ Speech recognition: speak answers in practice (Chrome / Edge; optional cloud STT when enabled)</li>
+          <li>✓ Timed examinations</li>
+          <li>✓ Random order and repeat-mistakes mode</li>
+          <li>✓ Import existing PSTUDY .txt decks</li>
+          <li>✓ Works on any device in the browser</li>
+          <li>✓ No installation — always up to date</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer>
+      PSTUDY ·
+      <a href="https://www.pstudy.be">www.pstudy.be</a>
+    </footer>
+
+    <script>
+      (function () {
+        var base = (window.PSTUDY_ONLINE_BASE || "").replace(/\/$/, "");
+        if (!base || base.indexOf("REPLACE-WITH") !== -1) {
+          console.warn('[PSTUDY marketing page] Set window.PSTUDY_ONLINE_BASE in <head> to your Next.js app URL.');
+        }
+        document.querySelectorAll("[data-app]").forEach(function (el) {
+          var path = el.getAttribute("data-app") || "";
+          el.setAttribute("href", base ? base + path : "#");
+        });
+      })();
+    </script>
+  </body>
+</html>

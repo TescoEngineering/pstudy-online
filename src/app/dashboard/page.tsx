@@ -91,9 +91,11 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-stone-50">
       <header className="border-b border-stone-200 bg-white">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-4">
-          <Logo size="sm" withText />
-          <nav className="flex items-center gap-4">
+        <div className="mx-auto flex max-w-4xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:py-4">
+          <div className="shrink-0">
+            <Logo size="sm" withText />
+          </div>
+          <nav className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm sm:justify-end">
             <Link
               href="/community"
               className="text-stone-600 hover:text-pstudy-primary"
@@ -118,9 +120,13 @@ export default function DashboardPage() {
             >
               {t("exam.title")}
             </Link>
+            <Link href="/help" className="text-stone-600 hover:text-pstudy-primary">
+              {t("help.nav")}
+            </Link>
             <button
+              type="button"
               onClick={handleSignOut}
-              className="text-sm text-stone-500 hover:text-stone-700"
+              className="text-stone-500 hover:text-stone-700"
             >
               {t("dashboard.signOut")}
             </button>

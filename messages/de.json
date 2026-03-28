@@ -36,7 +36,7 @@
     "feature6": "Bestehende PSTUDY-.txt-Stapel importieren",
     "feature7": "Funktioniert auf jedem Gerät im Browser",
     "feature8": "Keine Installation — immer aktuell",
-    "footerBrand": "PSTUDY · Tesco Engineering bv",
+    "footerBrand": "PSTUDY",
     "website": "www.pstudy.be"
   },
   "login": {
@@ -82,7 +82,7 @@
     "untitledDeck": "Unbenanntes Deck"
   },
   "deck": {
-    "backToDashboard": "← Dashboard",
+    "backToDashboard": "← Meine Decks",
     "editDeck": "Deck bearbeiten",
     "field": "Bereich",
     "topic": "Thema",
@@ -102,13 +102,18 @@
     "saving": "Speichern..."
   },
   "practice": {
+    "exerciseSetup": "Übungseinstellungen",
     "askFor": "Abgefragt wird",
     "description": "Beschreibung",
     "explanation": "Erklärung",
     "answerType": "Antworttyp",
     "straightAnswer": "Direkte Antwort",
     "multipleChoice": "Multiple Choice",
-    "flashcard": "Karteikarte (durch Sprechen ausfüllen)",
+    "flashcard": "Karteikarte",
+    "flashcardSttEngine": "Karteikarten-Spracherkennung",
+    "flashcardSttGoogle": "Google Cloud (Phrase-Hinweise)",
+    "flashcardSttBrowser": "Nur Browser (Web Speech)",
+    "flashcardSttGoogleUnavailable": "Google ist auf diesem Server nicht eingerichtet — es wird der Browser verwendet.",
     "order": "Reihenfolge",
     "normalOrder": "Normale Reihenfolge",
     "randomOrder": "Zufällig",
@@ -141,7 +146,7 @@
   },
   "result": {
     "complete": "Übung abgeschlossen",
-    "backToDashboard": "Zurück zum Dashboard",
+    "backToDashboard": "Meine Decks",
     "summary": "{correct} richtig, {wrong} falsch — {total} gesamt"
   },
   "import": {

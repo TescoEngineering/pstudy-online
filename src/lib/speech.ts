@@ -50,15 +50,21 @@ function runWhenVoicesReady(run: () => void): void {
     run();
     return;
   }
-  const onVoices = () => {
+  let done = false;
+  const once = () => {
+    if (done) return;
+    done = true;
     s.removeEventListener("voiceschanged", onVoices);
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+      timeoutId = null;
+    }
     run();
   };
+  const onVoices = () => once();
+  let timeoutId: number | null = null;
+  timeoutId = window.setTimeout(() => once(), 600);
   s.addEventListener("voiceschanged", onVoices);
-  window.setTimeout(() => {
-    s.removeEventListener("voiceschanged", onVoices);
-    run();
-  }, 600);
 }
 
 /** Speak text using the browser's built-in TTS */

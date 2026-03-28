@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useTranslation } from "@/lib/i18n";
 import { useToast } from "@/components/Toast";
@@ -51,6 +51,14 @@ function normalizeAnswer(s: string): string {
 /** Don't strip question echoes shorter than this — avoids "What's…" matching only "W" and mangling "Washington". */
 const MIN_QUESTION_ECHO_PREFIX_LEN = 3;
 
+/** Listen mode TTS: read instruction and main line when both are set (matches on-screen question + hint). */
+function listenQuestionSpeechText(item: PStudyItem, promptMode: "description" | "explanation"): string {
+  const inst = (item.instruction?.trim() || "").trim();
+  const main = ((promptMode === "description" ? item.explanation : item.description)?.trim() || "").trim();
+  if (inst && main) return `${inst}. ${main}`;
+  return inst || main;
+}
+
 export default function PracticePage() {
   const params = useParams();
   const { t } = useTranslation();
@@ -69,9 +77,13 @@ export default function PracticePage() {
   const [correct, setCorrect] = useState(0);
   const [wrong, setWrong] = useState(0);
   const [showResult, setShowResult] = useState(false);
+  /** Card being graded while result pane is open (avoids picture/question jumping if index advances early). */
+  const [resultCardItem, setResultCardItem] = useState<PStudyItem | null>(null);
   const [mcOptions, setMcOptions] = useState<string[]>([]);
   const [repeatMistakesMode, setRepeatMistakesMode] = useState(false);
   const [wrongItems, setWrongItems] = useState<PStudyItem[]>([]);
+  const wrongItemsRef = useRef(wrongItems);
+  wrongItemsRef.current = wrongItems;
   const [originalTotal, setOriginalTotal] = useState(0);
   const [listenMode, setListenMode] = useState(false);
   const [speakMode, setSpeakMode] = useState(false);
@@ -90,16 +102,26 @@ export default function PracticePage() {
   }, []);
   const [sttGoogle, setSttGoogle] = useState(false);
   const cloudSttAvailable = sttGoogle;
+  /** Flashcard only: compare Google chunk STT vs browser Web Speech (saved in this browser). */
+  const [flashcardSttEngine, setFlashcardSttEngine] = useState<"google" | "browser">(() => {
+    if (typeof window === "undefined") return "browser";
+    const s = localStorage.getItem("pstudy-flashcard-stt");
+    if (s === "google") return "google";
+    return "browser";
+  });
   /** Per-deck STT heard → answer; optional advanced mappings (localStorage). */
   const [sttAliasRows, setSttAliasRows] = useState<{ from: string; to: string }[]>([]);
   const [sttAliasesHydrated, setSttAliasesHydrated] = useState(false);
   /** While open, practice mic/STT is off so mappings don’t fight the exercise. */
   const [speechMappingPanelOpen, setSpeechMappingPanelOpen] = useState(false);
+  const [exerciseSetupOpen, setExerciseSetupOpen] = useState(true);
   const speechMappingPanelOpenRef = useRef(false);
   speechMappingPanelOpenRef.current = speechMappingPanelOpen;
   const [isListening, setIsListening] = useState(false);
   const [flashcardFilled, setFlashcardFilled] = useState<(string | null)[]>([]);
   const [flashcardRevealed, setFlashcardRevealed] = useState(false);
+  const flashcardRevealedRef = useRef(flashcardRevealed);
+  flashcardRevealedRef.current = flashcardRevealed;
   const stopListeningRef = useRef<(() => void) | null>(null);
   const skipSttAliasSaveRef = useRef(false);
   const answerRef = useRef(answer);
@@ -109,6 +131,33 @@ export default function PracticePage() {
   const showResultRef = useRef(showResult);
   const modeRef = useRef(mode);
   const questionTextRef = useRef("");
+  /** After check (Enter), answer field unmounts — move focus here so it doesn’t jump to the setup summary. */
+  const practiceResultNextRef = useRef<HTMLButtonElement>(null);
+  /** Invalidates in-flight async `startSpeakListening` (fetch + mic) when the item or phase changes. */
+  const listenSeqRef = useRef(0);
+  /** True from Enter-to-check until result state commits — blocks speech `onend` from restarting the mic too early. */
+  const answerCheckPendingRef = useRef(false);
+  /** Cancels stale “resume listen after TTS” timeouts when advancing quickly. */
+  const ttsAfterListenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Blocks re-entrant `next()` (double Enter / double-click) which batches two `setIndex(i=>i+1)` and overshoots `list.length`. */
+  const nextInFlightRef = useRef(false);
+  /** Abort in-flight `/api/speech-to-text/status` when starting a new listen session. */
+  const listenStatusAbortRef = useRef<AbortController | null>(null);
+  /** Debounced Web Speech `onend` → restart; avoids tight restart loops that destabilize Chrome after many cycles. */
+  const listenRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Debounce localStorage writes for STT aliases (mapping editor / panel). */
+  const aliasSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const bumpListenGeneration = useCallback(() => {
+    listenSeqRef.current++;
+    listenStatusAbortRef.current?.abort();
+    listenStatusAbortRef.current = null;
+    if (listenRestartTimerRef.current) {
+      clearTimeout(listenRestartTimerRef.current);
+      listenRestartTimerRef.current = null;
+    }
+  }, []);
+
   speakModeRef.current = speakMode;
   showResultRef.current = showResult;
   modeRef.current = mode;
@@ -149,12 +198,30 @@ export default function PracticePage() {
       skipSttAliasSaveRef.current = false;
       return;
     }
-    saveDeckSttAliases(id, deckSttAliasesRecord);
+    if (aliasSaveTimerRef.current) {
+      clearTimeout(aliasSaveTimerRef.current);
+      aliasSaveTimerRef.current = null;
+    }
+    aliasSaveTimerRef.current = setTimeout(() => {
+      aliasSaveTimerRef.current = null;
+      saveDeckSttAliases(id, deckSttAliasesRecord);
+    }, 500);
+    return () => {
+      if (aliasSaveTimerRef.current) {
+        clearTimeout(aliasSaveTimerRef.current);
+        aliasSaveTimerRef.current = null;
+      }
+    };
   }, [id, deckSttAliasesRecord, sttAliasesHydrated]);
 
-  /** Fill first empty “What STT heard” from the live Heard line; add one row if none exist yet. */
+  /**
+   * Seed “What STT heard” only while the mappings panel is open.
+   * When the panel is closed, `lastHeardRaw` updates on every STT tick during Speak mode — syncing
+   * here used to hammer setState + localStorage saves and could freeze or kill the tab after dozens
+   * of answers. Use “Add row from last Heard” during practice, or open the panel to auto-fill once.
+   */
   useEffect(() => {
-    if (speechMappingPanelOpen) return;
+    if (!speechMappingPanelOpen) return;
     const heard = lastHeardRaw.trim();
     if (!heard) return;
     setSttAliasRows((prev) => {
@@ -173,10 +240,11 @@ export default function PracticePage() {
 
   useEffect(() => {
     if (!speechMappingPanelOpen) return;
+    bumpListenGeneration();
     stopListeningRef.current?.();
     setIsListening(false);
     stopListeningRef.current = null;
-  }, [speechMappingPanelOpen]);
+  }, [speechMappingPanelOpen, bumpListenGeneration]);
 
   useEffect(() => {
     async function load() {
@@ -195,6 +263,7 @@ export default function PracticePage() {
         setIndex(0);
         setAnswer("");
         setShowResult(false);
+        setResultCardItem(null);
         setRepeatMistakesMode(false);
         setWrongItems([]);
         setOriginalTotal(ordered.length);
@@ -229,15 +298,37 @@ export default function PracticePage() {
     };
   }, []);
 
-  const current = list[index];
   const total = list.length;
+  const displayIndex =
+    total === 0 ? 0 : Math.min(Math.max(0, index), total - 1);
+  const current: PStudyItem | undefined =
+    total > 0 ? list[displayIndex] : undefined;
+  /** While the result pane is open, keep header + image on the card that was graded (list/index may already point at the next item in repeat-mistakes mode). */
+  const displayCard: PStudyItem | undefined =
+    showResult && resultCardItem ? resultCardItem : current;
+
+  useLayoutEffect(() => {
+    if (total === 0) return;
+    if (index !== displayIndex) {
+      setIndex(displayIndex);
+    }
+  }, [total, index, displayIndex]);
+
+  useLayoutEffect(() => {
+    nextInFlightRef.current = false;
+  }, [index, showResult, total]);
 
   useEffect(() => {
     return () => {
+      bumpListenGeneration();
+      if (ttsAfterListenTimerRef.current) {
+        clearTimeout(ttsAfterListenTimerRef.current);
+        ttsAfterListenTimerRef.current = null;
+      }
       stopSpeaking();
       stopListeningRef.current?.();
     };
-  }, [current]);
+  }, [current, bumpListenGeneration]);
 
   // Initialize flashcard state when item changes
   useEffect(() => {
@@ -261,11 +352,16 @@ export default function PracticePage() {
       (mode !== "straight" && mode !== "flashcard") ||
       (mode === "flashcard" && flashcardRevealed)
     ) {
+      bumpListenGeneration();
       stopListeningRef.current?.();
       setIsListening(false);
       stopListeningRef.current = null;
     }
-  }, [showResult, speakMode, mode, flashcardRevealed]);
+  }, [showResult, speakMode, mode, flashcardRevealed, bumpListenGeneration]);
+
+  useEffect(() => {
+    if (showResult) answerCheckPendingRef.current = false;
+  }, [showResult]);
 
   const flashcardFilledRef = useRef(flashcardFilled);
   flashcardFilledRef.current = flashcardFilled;
@@ -280,30 +376,42 @@ export default function PracticePage() {
       speechMappingPanelOpenRef.current
     )
       return;
+    bumpListenGeneration();
+    const seq = listenSeqRef.current;
     stopListeningRef.current?.();
+    setIsListening(false);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    if (seq !== listenSeqRef.current) return;
+    const afterDelayFlashcard = modeRef.current === "flashcard";
+    if (
+      (modeRef.current !== "straight" && !afterDelayFlashcard) ||
+      !speakModeRef.current ||
+      showResultRef.current ||
+      (afterDelayFlashcard && flashcardRevealedRef.current) ||
+      speechMappingPanelOpenRef.current
+    ) {
+      return;
+    }
+
     setIsListening(true);
 
-    const deckVocabulary = isFlashcard
+    const deckVocabulary = afterDelayFlashcard
       ? [...new Set(getExplanationWords(String(current?.explanation ?? "")))]
-      : [
-          ...new Set(
-            list
-              .flatMap((it) => [
-                String(it.description ?? "").trim(),
-                String(it.explanation ?? "").trim(),
-              ])
-              .filter(Boolean)
-          ),
-        ];
+      : deckAnswerVocabulary.length > 0
+        ? [...deckAnswerVocabulary]
+        : [];
 
     const vocabulary = deckVocabulary.length ? deckVocabulary : undefined;
 
     const handleResult = (transcript: string, isFinal: boolean) => {
       if (!isFinal) return;
+      if (seq !== listenSeqRef.current) return;
 
       if (!transcript.trim()) return;
 
-      if (isFlashcard) {
+      if (afterDelayFlashcard) {
         const words = getExplanationWords(String(current?.explanation ?? ""));
         const prev = flashcardFilledRef.current;
         const next = fillFromTranscript(transcript.trim(), words, prev);
@@ -368,28 +476,58 @@ export default function PracticePage() {
     };
 
     const handleError = (msg: string) => {
+      if (seq !== listenSeqRef.current) return;
       toast.error(msg);
       setIsListening(false);
       stopListeningRef.current = null;
     };
 
+    const onHeardGuarded = (line: string) => {
+      if (seq !== listenSeqRef.current) return;
+      onHeardLineStable(line);
+    };
+
     const handleEnd = () => {
+      if (seq !== listenSeqRef.current) return;
+      if (answerCheckPendingRef.current) return;
       if (speechMappingPanelOpenRef.current) return;
       if (
-        speakModeRef.current &&
-        !showResultRef.current &&
-        (modeRef.current === "straight" || modeRef.current === "flashcard")
+        !speakModeRef.current ||
+        showResultRef.current ||
+        (modeRef.current !== "straight" && modeRef.current !== "flashcard")
       ) {
-        startSpeakListening();
+        return;
       }
+      if (listenRestartTimerRef.current) {
+        clearTimeout(listenRestartTimerRef.current);
+        listenRestartTimerRef.current = null;
+      }
+      listenRestartTimerRef.current = setTimeout(() => {
+        listenRestartTimerRef.current = null;
+        if (seq !== listenSeqRef.current) return;
+        if (answerCheckPendingRef.current) return;
+        if (speechMappingPanelOpenRef.current) return;
+        if (
+          !speakModeRef.current ||
+          showResultRef.current ||
+          (modeRef.current !== "straight" && modeRef.current !== "flashcard")
+        ) {
+          return;
+        }
+        startSpeakListening();
+      }, 380);
     };
 
     let stop: (() => void) | null = null;
-    const useVocabulary = isFlashcard || vocabularyBias;
+    const useVocabulary = afterDelayFlashcard || vocabularyBias;
+    const useFlashcardGoogle =
+      afterDelayFlashcard && flashcardSttEngine === "google";
 
-    if (useVocabulary && vocabulary?.length) {
+    if (useVocabulary && vocabulary?.length && (!afterDelayFlashcard || useFlashcardGoogle)) {
+      listenStatusAbortRef.current = new AbortController();
+      const { signal } = listenStatusAbortRef.current;
       try {
-        const r = await fetch("/api/speech-to-text/status");
+        const r = await fetch("/api/speech-to-text/status", { signal });
         const d = (await r.json()) as {
           available?: boolean;
           google?: boolean;
@@ -401,14 +539,22 @@ export default function PracticePage() {
             vocabulary,
             sttAliases: deckSttAliasesRecord,
             onResult: handleResult,
-            onHeardLine: onHeardLineStable,
+            onHeardLine: onHeardGuarded,
             onError: handleError,
             onEnd: handleEnd,
+            shouldIgnoreResults: () => seq !== listenSeqRef.current,
           });
         }
       } catch {
+        if (seq !== listenSeqRef.current) return;
         // Fall through to Web Speech API
       }
+    }
+
+    if (seq !== listenSeqRef.current) {
+      if (stop) stop();
+      setIsListening(false);
+      return;
     }
 
     if (!stop) {
@@ -428,10 +574,16 @@ export default function PracticePage() {
             : undefined,
         continuous: true,
         onResult: handleResult,
-        onHeardLine: onHeardLineStable,
+        onHeardLine: onHeardGuarded,
         onError: handleError,
         onEnd: handleEnd,
       });
+    }
+
+    if (seq !== listenSeqRef.current) {
+      if (stop) stop();
+      setIsListening(false);
+      return;
     }
 
     if (!stop) {
@@ -446,7 +598,6 @@ export default function PracticePage() {
     showResult,
     speechLang,
     vocabularyBias,
-    list,
     promptMode,
     current,
     flashcardRevealed,
@@ -454,29 +605,38 @@ export default function PracticePage() {
     t,
     onHeardLineStable,
     deckSttAliasesRecord,
+    flashcardSttEngine,
+    bumpListenGeneration,
+    deckAnswerVocabulary,
   ]);
 
   // When item loads: if listenMode, speak the question (only once per item). If speakMode (and straight/flashcard), start listening after TTS ends.
   useEffect(() => {
-    if (!current) return;
-    // When instruction is not blank, it is the question; otherwise use explanation or description per promptMode
-    const questionText = (current.instruction?.trim() || (promptMode === "description" ? current.explanation : current.description) || "").trim();
+    if (!displayCard) return;
+    const questionText = listenQuestionSpeechText(displayCard, promptMode).trim();
     questionTextRef.current = questionText;
 
     if (showResult || (mode === "flashcard" && flashcardRevealed)) return;
 
     // Only speak when we've moved to a new item, not when user just toggles Speak
-    const isNewItem = lastSpokenForRef.current !== current.id;
+    const isNewItem = lastSpokenForRef.current !== displayCard.id;
     if (listenMode && questionText && isNewItem) {
-      lastSpokenForRef.current = current.id;
+      lastSpokenForRef.current = displayCard.id;
       speakWithCallback(questionText, () => {
-        setTimeout(startSpeakListening, 300);
+        if (ttsAfterListenTimerRef.current) {
+          clearTimeout(ttsAfterListenTimerRef.current);
+          ttsAfterListenTimerRef.current = null;
+        }
+        ttsAfterListenTimerRef.current = setTimeout(() => {
+          ttsAfterListenTimerRef.current = null;
+          startSpeakListening();
+        }, 300);
       }, speechLang);
     } else {
       startSpeakListening();
     }
   }, [
-    current,
+    displayCard,
     listenMode,
     speakMode,
     mode,
@@ -487,6 +647,14 @@ export default function PracticePage() {
     speechLang,
     speechMappingPanelOpen,
   ]);
+
+  useEffect(() => {
+    if (!showResult) return;
+    const id = requestAnimationFrame(() => {
+      practiceResultNextRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [showResult]);
 
   useEffect(() => {
     if (!current || mode !== "multiple-choice") return;
@@ -507,6 +675,7 @@ export default function PracticePage() {
 
   const checkAnswer = useCallback(
     (userAnswer: string) => {
+      if (!current) return;
       const expected =
         promptMode === "description" ? current.description : current.explanation;
       const expectedStr = String(expected ?? "").trim();
@@ -516,7 +685,7 @@ export default function PracticePage() {
         setCorrect((c) => c + 1);
         if (repeatMistakesMode) {
           setList((prev) => {
-            const next = prev.filter((_, i) => i !== index);
+            const next = prev.filter((_, i) => i !== displayIndex);
             if (next.length === 0) {
               setTimeout(() => router.push(`/practice/${id}/result?correct=${correct + 1}&wrong=${wrong}&total=${originalTotal || total}`), 0);
             }
@@ -524,6 +693,7 @@ export default function PracticePage() {
           });
           setIndex(0);
           setShowResult(false);
+          setResultCardItem(null);
           setAnswer("");
         }
       } else {
@@ -532,14 +702,21 @@ export default function PracticePage() {
           setWrongItems((prev) => [...prev, current]);
         } else {
           setList((prev) => {
-            const item = prev[index];
-            const rest = prev.filter((_, i) => i !== index);
+            const item = prev[displayIndex];
+            if (item === undefined) return prev;
+            const rest = prev.filter((_, i) => i !== displayIndex);
             return [...rest, item];
           });
           setIndex(0);
         }
       }
-      setShowResult(true);
+
+      // Repeat-mistakes correct answer: inner block already set showResult false and advanced the list.
+      // Do not force showResult true here — that reused the last-spoken id for Listen and trapped the UI on the result pane.
+      if (!(ok && repeatMistakesMode)) {
+        setResultCardItem(current);
+        setShowResult(true);
+      }
 
       // When Listen is on, speak the evaluation feedback
       if (listenMode && expectedStr) {
@@ -550,25 +727,37 @@ export default function PracticePage() {
         }
       }
     },
-    [current, promptMode, repeatMistakesMode, index, list.length, correct, wrong, originalTotal, total, id, router, listenMode, speechLang]
+    [current, displayIndex, promptMode, repeatMistakesMode, list.length, correct, wrong, originalTotal, total, id, router, listenMode, speechLang]
   );
+
 
   const goToResults = useCallback(() => {
     router.push(`/practice/${id}/result?correct=${correct}&wrong=${wrong}&total=${originalTotal || total}`);
   }, [correct, wrong, originalTotal, total, id, router]);
 
   const next = useCallback(() => {
+    if (nextInFlightRef.current) return;
+    nextInFlightRef.current = true;
+    bumpListenGeneration();
+    if (ttsAfterListenTimerRef.current) {
+      clearTimeout(ttsAfterListenTimerRef.current);
+      ttsAfterListenTimerRef.current = null;
+    }
     stopSpeaking();
     setAnswer("");
     setShowResult(false);
+    setResultCardItem(null);
     setFlashcardRevealed(false);
     setFlashcardFilled([]);
     if (repeatMistakesMode) {
       return; // List/index already updated in checkAnswer
     }
-    if (index + 1 >= total) {
-      if (wrongItems.length > 0) {
-        setList(shuffle(wrongItems));
+    if (displayIndex + 1 >= total) {
+      const toRepeat = wrongItemsRef.current;
+      if (toRepeat.length > 0) {
+        // New round of wrong-only cards — reset so Listen/TTS treats the first card as new (same id as last main-round card otherwise skipped).
+        lastSpokenForRef.current = null;
+        setList(shuffle(toRepeat));
         setIndex(0);
         setWrongItems([]);
         setRepeatMistakesMode(true);
@@ -578,39 +767,64 @@ export default function PracticePage() {
       return;
     }
     setIndex((i) => i + 1);
-  }, [index, total, repeatMistakesMode, wrongItems, goToResults]);
+  }, [displayIndex, total, repeatMistakesMode, goToResults, bumpListenGeneration]);
 
   const revealFlashcard = useCallback(() => {
+    bumpListenGeneration();
+    if (ttsAfterListenTimerRef.current) {
+      clearTimeout(ttsAfterListenTimerRef.current);
+      ttsAfterListenTimerRef.current = null;
+    }
     stopListeningRef.current?.();
     setIsListening(false);
     stopListeningRef.current = null;
     setFlashcardRevealed(true);
-  }, []);
+  }, [bumpListenGeneration]);
 
   function handleListenQuestion() {
-    const text = (current.instruction?.trim() || (promptMode === "description" ? current.explanation : current.description) || "").trim();
+    if (!displayCard) return;
+    const text = listenQuestionSpeechText(displayCard, promptMode).trim();
     if (!text) return;
     // Stop speech recognition so it doesn't pick up the TTS
+    bumpListenGeneration();
     stopListeningRef.current?.();
     setIsListening(false);
     stopListeningRef.current = null;
+    if (ttsAfterListenTimerRef.current) {
+      clearTimeout(ttsAfterListenTimerRef.current);
+      ttsAfterListenTimerRef.current = null;
+    }
     speakWithCallback(text.trim(), () => {
-      // Restart listening after TTS ends (if speak mode is on)
-      setTimeout(startSpeakListening, 300);
+      if (ttsAfterListenTimerRef.current) {
+        clearTimeout(ttsAfterListenTimerRef.current);
+        ttsAfterListenTimerRef.current = null;
+      }
+      ttsAfterListenTimerRef.current = setTimeout(() => {
+        ttsAfterListenTimerRef.current = null;
+        startSpeakListening();
+      }, 300);
     }, speechLang);
   }
 
   function handleListenAnswer() {
-    const text = promptMode === "description" ? current.description : current.explanation;
+    if (!displayCard) return;
+    const text =
+      promptMode === "description" ? displayCard.description : displayCard.explanation;
     if (text?.trim()) speak(text.trim(), speechLang);
   }
 
   const handleEnterToCheck = useCallback(() => {
+    answerCheckPendingRef.current = true;
+    bumpListenGeneration();
+    if (ttsAfterListenTimerRef.current) {
+      clearTimeout(ttsAfterListenTimerRef.current);
+      ttsAfterListenTimerRef.current = null;
+    }
     stopListeningRef.current?.();
     setIsListening(false);
     stopListeningRef.current = null;
     checkAnswer(answerRef.current);
-  }, [checkAnswer]);
+  }, [checkAnswer, bumpListenGeneration]);
 
   // Enter: when answering, check/reveal; when viewing result, go to next.
   useEffect(() => {
@@ -657,6 +871,16 @@ export default function PracticePage() {
     );
   }
 
+  if (!current) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4">
+        <Link href={`/deck/${id}`} className="btn-primary">
+          {t("deck.editDeck")}
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-stone-50">
       <header className="border-b border-stone-200 bg-white">
@@ -668,16 +892,28 @@ export default function PracticePage() {
             {repeatMistakesMode ? (
               <>{t("practice.repeatMistakesLeft", { count: list.length })} · ✓ {correct} ✗ {wrong}</>
             ) : (
-              <>{index + 1} / {total} · ✓ {correct} ✗ {wrong}</>
+              <>{displayIndex + 1} / {total} · ✓ {correct} ✗ {wrong}</>
             )}
           </span>
         </div>
       </header>
 
       <main className="mx-auto max-w-2xl px-4 py-8">
-        <div className="mb-6 flex flex-wrap gap-4">
-          {index === 0 && (
-            <>
+        <details
+          className="mb-6 w-full rounded border border-stone-200 bg-white px-3 py-2"
+          open={exerciseSetupOpen}
+          onToggle={(e) => setExerciseSetupOpen(e.currentTarget.open)}
+        >
+          <summary className="cursor-pointer select-none text-sm font-medium text-stone-700 outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:ring-offset-2">
+            {t("practice.exerciseSetup")}
+          </summary>
+          <div className="mt-3 space-y-4">
+            {repeatMistakesMode && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+                {t("practice.repeatMistakesLeft", { count: list.length })}
+              </div>
+            )}
+            <div className="flex flex-wrap gap-4">
               <label className="flex items-center gap-2">
                 <span className="text-sm text-stone-600">{t("practice.askFor")}</span>
                 <select
@@ -699,7 +935,10 @@ export default function PracticePage() {
                   onChange={(e) => {
                     const v = e.target.value as "straight" | "multiple-choice" | "flashcard";
                     setMode(v);
-                    if (v === "flashcard") setPromptMode("explanation");
+                    if (v === "flashcard") {
+                      setPromptMode("explanation");
+                      setSpeakMode(true);
+                    }
                   }}
                   className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
                 >
@@ -719,8 +958,6 @@ export default function PracticePage() {
                   <option value="random">{t("practice.randomOrder")}</option>
                 </select>
               </label>
-            </>
-          )}
           <label className="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
@@ -754,6 +991,28 @@ export default function PracticePage() {
                 className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
               />
               <span className="text-sm text-stone-600">{t("practice.considerOnlyDeckAnswers")}</span>
+            </label>
+          )}
+          {mode === "flashcard" && speakMode && (
+            <label className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-stone-600">{t("practice.flashcardSttEngine")}</span>
+              <select
+                value={flashcardSttEngine}
+                onChange={(e) => {
+                  const v = e.target.value as "google" | "browser";
+                  setFlashcardSttEngine(v);
+                  localStorage.setItem("pstudy-flashcard-stt", v);
+                }}
+                className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+              >
+                <option value="google">{t("practice.flashcardSttGoogle")}</option>
+                <option value="browser">{t("practice.flashcardSttBrowser")}</option>
+              </select>
+              {!cloudSttAvailable && flashcardSttEngine === "google" ? (
+                <span className="w-full text-xs text-amber-700">
+                  {t("practice.flashcardSttGoogleUnavailable")}
+                </span>
+              ) : null}
             </label>
           )}
           {(mode === "straight" || mode === "flashcard") &&
@@ -871,21 +1130,17 @@ export default function PracticePage() {
               </div>
             </details>
           )}
-        </div>
-
-        {repeatMistakesMode && (
-          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
-            {t("practice.repeatMistakesLeft", { count: list.length })}
+            </div>
           </div>
-        )}
+        </details>
 
         <div className="card mb-6">
-          {current.instruction ? (
-            <p className="text-sm text-stone-500">{current.instruction}</p>
+          {displayCard.instruction ? (
+            <p className="text-sm text-stone-500">{displayCard.instruction}</p>
           ) : null}
           <div className="mt-2 flex items-start justify-between gap-2">
             <h2 className="flex-1 text-xl font-semibold text-stone-900">
-              {promptMode === "description" ? current.explanation : current.description}
+              {promptMode === "description" ? displayCard.explanation : displayCard.description}
             </h2>
             <button
               type="button"
@@ -896,11 +1151,16 @@ export default function PracticePage() {
               {t("common.listen")}
             </button>
           </div>
-          {current.picture_url && (
+          {displayCard.picture_url && (
             <div className="mt-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={current.picture_url}
+                key={
+                  showResult
+                    ? `r:${displayCard.id}:${displayCard.picture_url}`
+                    : `i:${displayIndex}:${displayCard.id}:${displayCard.picture_url}`
+                }
+                src={displayCard.picture_url}
                 alt="Item picture"
                 className="max-h-64 w-full rounded-lg object-contain ring-1 ring-stone-200"
               />
@@ -1042,7 +1302,9 @@ export default function PracticePage() {
             className={`rounded-lg border-2 p-4 ${
                 normalizeAnswer(answer) ===
                 normalizeAnswer(
-                  promptMode === "description" ? current.description : current.explanation
+                  promptMode === "description"
+                    ? displayCard.description
+                    : displayCard.explanation
                 )
                   ? "border-green-500 bg-green-50"
                   : "border-red-400 bg-red-50"
@@ -1051,7 +1313,9 @@ export default function PracticePage() {
               <p className="font-medium">
                 {normalizeAnswer(answer) ===
                 normalizeAnswer(
-                  promptMode === "description" ? current.description : current.explanation
+                  promptMode === "description"
+                    ? displayCard.description
+                    : displayCard.explanation
                 )
                   ? t("common.correct")
                   : t("common.incorrect")}
@@ -1060,7 +1324,9 @@ export default function PracticePage() {
                 <span>
                   {t("common.answer")}:{" "}
                   <strong>
-                    {promptMode === "description" ? current.description : current.explanation}
+                    {promptMode === "description"
+                      ? displayCard.description
+                      : displayCard.explanation}
                   </strong>
                 </span>
                 <button
@@ -1073,12 +1339,17 @@ export default function PracticePage() {
                 </button>
               </div>
             </div>
-            <button onClick={next} className="btn-primary">
+            <button
+              ref={practiceResultNextRef}
+              type="button"
+              onClick={next}
+              className="btn-primary"
+            >
               {repeatMistakesMode
                 ? list.length <= 1
                   ? t("practice.seeResults")
                   : t("common.next")
-                : index + 1 >= total
+                : displayIndex + 1 >= total
                   ? wrongItems.length > 0
                     ? t("practice.repeatMistakes")
                     : t("practice.seeResults")

@@ -10,6 +10,7 @@ import { fetchDeck, saveDeckWithItems } from "@/lib/supabase/decks";
 import { ExpandableField } from "@/components/ExpandableField";
 import { PictureUpload } from "@/components/PictureUpload";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { Logo } from "@/components/Logo";
 import { useToast } from "@/components/Toast";
 import { FIELDS_OF_INTEREST, getTopicsForField } from "@/lib/deck-attributes";
 
@@ -157,19 +158,24 @@ export default function DeckEditorPage() {
   return (
     <div className="min-h-screen bg-stone-50">
       <header className="border-b border-stone-200 bg-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-          <Link href="/dashboard" className="text-pstudy-primary hover:underline">
-            {t("deck.backToDashboard")}
-          </Link>
-          <div className="flex flex-wrap items-center gap-4">
+        <div className="mx-auto max-w-5xl space-y-3 px-4 py-4">
+          <div className="flex items-center justify-between gap-4">
+            <Logo size="sm" withText />
+            <nav className="flex items-center gap-4">
+              <Link href="/dashboard" className="text-stone-600 hover:text-pstudy-primary">
+                {t("dashboard.myDecks")}
+              </Link>
+            </nav>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-stone-100 pt-3">
             <input
               type="text"
               value={title}
               onChange={(e) => updateTitleLocal(e.target.value)}
-              className="rounded border border-stone-300 px-3 py-1 text-lg font-semibold focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+              className="min-w-[12rem] flex-1 rounded border border-stone-300 px-3 py-1.5 text-base font-semibold text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary sm:min-w-[16rem] sm:text-lg"
             />
             <div className="flex items-center gap-2">
-              <label className="text-sm text-stone-600">{t("deck.field")}:</label>
+              <label className="shrink-0 text-sm text-stone-600">{t("deck.field")}:</label>
               <select
                 value={deck?.fieldOfInterest ?? ""}
                 onChange={(e) =>
@@ -178,7 +184,7 @@ export default function DeckEditorPage() {
                     topic: null,
                   })
                 }
-                className="rounded border border-stone-300 px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                className="max-w-[11rem] rounded border border-stone-300 px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
               >
                 <option value="">—</option>
                 {FIELDS_OF_INTEREST.map((f) => (
@@ -189,11 +195,11 @@ export default function DeckEditorPage() {
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-sm text-stone-600">{t("deck.topic")}:</label>
+              <label className="shrink-0 text-sm text-stone-600">{t("deck.topic")}:</label>
               <select
                 value={deck?.topic ?? ""}
                 onChange={(e) => updateDeckLocal({ topic: e.target.value || null })}
-                className="rounded border border-stone-300 px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                className="max-w-[11rem] rounded border border-stone-300 px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
               >
                 <option value="">—</option>
                 {getTopicsForField(deck?.fieldOfInterest ?? null).map((t) => (
@@ -219,19 +225,11 @@ export default function DeckEditorPage() {
               {t("deck.saving")}
             </span>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Link href={`/exams/new?deck=${id}`} className="btn-secondary text-sm">
-              {t("exam.newExam")}
-            </Link>
-            <Link href={`/practice/${id}`} className="btn-primary">
-              {t("common.practice")}
-            </Link>
-          </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-6">
-        <div className="mb-4 flex flex-wrap items-center gap-4">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
           <span className="text-stone-600">{deck.items.length} {t("dashboard.items", { count: deck.items.length })}</span>
           <div className="flex flex-wrap items-center gap-2">
             <label className="text-sm text-stone-600">{t("deck.fillInstructionForAll")}:</label>
@@ -251,9 +249,15 @@ export default function DeckEditorPage() {
               {t("deck.applyToAll")}
             </button>
           </div>
-          <button onClick={addItem} className="btn-primary text-sm">
+          <button type="button" onClick={addItem} className="btn-primary text-sm">
             {t("deck.addItem")}
           </button>
+          <Link href={`/exams/new?deck=${id}`} className="btn-secondary text-sm">
+            {t("exam.newExam")}
+          </Link>
+          <Link href={`/practice/${id}`} className="btn-primary text-sm">
+            {t("common.practice")}
+          </Link>
         </div>
 
         <div className="overflow-x-auto">

@@ -36,7 +36,7 @@
     "feature6": "Importez vos paquets PSTUDY .txt existants",
     "feature7": "Fonctionne sur tout appareil dans le navigateur",
     "feature8": "Aucune installation — toujours à jour",
-    "footerBrand": "PSTUDY · Tesco Engineering bv",
+    "footerBrand": "PSTUDY",
     "website": "www.pstudy.be"
   },
   "login": {
@@ -82,7 +82,7 @@
     "untitledDeck": "Paquet sans titre"
   },
   "deck": {
-    "backToDashboard": "← Tableau de bord",
+    "backToDashboard": "← Mes paquets",
     "editDeck": "Modifier le paquet",
     "field": "Domaine",
     "topic": "Sujet",
@@ -102,13 +102,18 @@
     "saving": "Enregistrement..."
   },
   "practice": {
+    "exerciseSetup": "Paramètres de l'exercice",
     "askFor": "Poser la question sur",
     "description": "Description",
     "explanation": "Explication",
     "answerType": "Type de réponse",
     "straightAnswer": "Réponse directe",
     "multipleChoice": "QCM",
-    "flashcard": "Carte (remplir en parlant)",
+    "flashcard": "Carte",
+    "flashcardSttEngine": "Reconnaissance flashcards",
+    "flashcardSttGoogle": "Google Cloud (indices)",
+    "flashcardSttBrowser": "Navigateur uniquement (Web Speech)",
+    "flashcardSttGoogleUnavailable": "Google n’est pas configuré — le navigateur est utilisé.",
     "order": "Ordre",
     "normalOrder": "Ordre normal",
     "randomOrder": "Aléatoire",
@@ -130,7 +135,7 @@
   },
   "result": {
     "complete": "Pratique terminée",
-    "backToDashboard": "Retour au tableau de bord",
+    "backToDashboard": "Mes paquets",
     "summary": "{correct} correct(s), {wrong} incorrect(s) — {total} au total"
   },
   "import": {
