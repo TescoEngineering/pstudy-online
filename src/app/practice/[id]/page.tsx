@@ -881,6 +881,8 @@ export default function PracticePage() {
     );
   }
 
+  const activeCard: PStudyItem = displayCard ?? current;
+
   return (
     <div className="min-h-screen bg-stone-50">
       <header className="border-b border-stone-200 bg-white">
@@ -1135,12 +1137,12 @@ export default function PracticePage() {
         </details>
 
         <div className="card mb-6">
-          {displayCard.instruction ? (
-            <p className="text-sm text-stone-500">{displayCard.instruction}</p>
+          {activeCard.instruction ? (
+            <p className="text-sm text-stone-500">{activeCard.instruction}</p>
           ) : null}
           <div className="mt-2 flex items-start justify-between gap-2">
             <h2 className="flex-1 text-xl font-semibold text-stone-900">
-              {promptMode === "description" ? displayCard.explanation : displayCard.description}
+              {promptMode === "description" ? activeCard.explanation : activeCard.description}
             </h2>
             <button
               type="button"
@@ -1151,16 +1153,16 @@ export default function PracticePage() {
               {t("common.listen")}
             </button>
           </div>
-          {displayCard.picture_url && (
+          {activeCard.picture_url && (
             <div className="mt-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 key={
                   showResult
-                    ? `r:${displayCard.id}:${displayCard.picture_url}`
-                    : `i:${displayIndex}:${displayCard.id}:${displayCard.picture_url}`
+                    ? `r:${activeCard.id}:${activeCard.picture_url}`
+                    : `i:${displayIndex}:${activeCard.id}:${activeCard.picture_url}`
                 }
-                src={displayCard.picture_url}
+                src={activeCard.picture_url}
                 alt="Item picture"
                 className="max-h-64 w-full rounded-lg object-contain ring-1 ring-stone-200"
               />
@@ -1303,8 +1305,8 @@ export default function PracticePage() {
                 normalizeAnswer(answer) ===
                 normalizeAnswer(
                   promptMode === "description"
-                    ? displayCard.description
-                    : displayCard.explanation
+                    ? activeCard.description
+                    : activeCard.explanation
                 )
                   ? "border-green-500 bg-green-50"
                   : "border-red-400 bg-red-50"
@@ -1314,8 +1316,8 @@ export default function PracticePage() {
                 {normalizeAnswer(answer) ===
                 normalizeAnswer(
                   promptMode === "description"
-                    ? displayCard.description
-                    : displayCard.explanation
+                    ? activeCard.description
+                    : activeCard.explanation
                 )
                   ? t("common.correct")
                   : t("common.incorrect")}
@@ -1325,8 +1327,8 @@ export default function PracticePage() {
                   {t("common.answer")}:{" "}
                   <strong>
                     {promptMode === "description"
-                      ? displayCard.description
-                      : displayCard.explanation}
+                      ? activeCard.description
+                      : activeCard.explanation}
                   </strong>
                 </span>
                 <button
