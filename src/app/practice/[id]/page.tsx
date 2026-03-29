@@ -5,6 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import Link from "next/link";
 import { useTranslation } from "@/lib/i18n";
 import { useToast } from "@/components/Toast";
+import { HelpNavLink } from "@/components/HelpNavLink";
 import { Deck, PStudyItem } from "@/types/pstudy";
 import { createClient } from "@/lib/supabase/client";
 import { fetchDeck } from "@/lib/supabase/decks";
@@ -851,22 +852,26 @@ export default function PracticePage() {
 
   if (!deck) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-stone-600">{t("practice.deckNotFound")}</p>
-        <Link href="/dashboard" className="ml-2 text-pstudy-primary hover:underline">
-          {t("result.backToDashboard")}
-        </Link>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4">
+        <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
+          <p className="text-stone-600">{t("practice.deckNotFound")}</p>
+          <Link href="/dashboard" className="text-pstudy-primary hover:underline">
+            {t("result.backToDashboard")}
+          </Link>
+        </div>
+        <HelpNavLink />
       </div>
     );
   }
 
   if (list.length === 0) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4">
         <p className="text-stone-600">{t("practice.noItems")}</p>
         <Link href={`/deck/${id}`} className="btn-primary">
           {t("deck.editDeck")}
         </Link>
+        <HelpNavLink />
       </div>
     );
   }
@@ -877,6 +882,7 @@ export default function PracticePage() {
         <Link href={`/deck/${id}`} className="btn-primary">
           {t("deck.editDeck")}
         </Link>
+        <HelpNavLink />
       </div>
     );
   }
@@ -886,17 +892,20 @@ export default function PracticePage() {
   return (
     <div className="min-h-screen bg-stone-50">
       <header className="border-b border-stone-200 bg-white">
-        <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-4">
+        <div className="mx-auto flex max-w-2xl flex-wrap items-center justify-between gap-2 px-4 py-4">
           <Link href={`/deck/${id}`} className="text-pstudy-primary hover:underline">
             ← {deck.title}
           </Link>
-          <span className="text-stone-600">
-            {repeatMistakesMode ? (
-              <>{t("practice.repeatMistakesLeft", { count: list.length })} · ✓ {correct} ✗ {wrong}</>
-            ) : (
-              <>{displayIndex + 1} / {total} · ✓ {correct} ✗ {wrong}</>
-            )}
-          </span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            <span className="text-stone-600">
+              {repeatMistakesMode ? (
+                <>{t("practice.repeatMistakesLeft", { count: list.length })} · ✓ {correct} ✗ {wrong}</>
+              ) : (
+                <>{displayIndex + 1} / {total} · ✓ {correct} ✗ {wrong}</>
+              )}
+            </span>
+            <HelpNavLink />
+          </div>
         </div>
       </header>
 

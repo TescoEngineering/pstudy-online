@@ -26,7 +26,15 @@ export async function middleware(request: NextRequest) {
       },
     });
 
-    await supabase.auth.getUser();
+    const { error } = await supabase.auth.getUser();
+    // Stale or rotated refresh token (e.g. old localhost cookies) — clear session instead of retrying every request.
+    if (
+      error &&
+      (error.code === "refresh_token_not_found" ||
+        (typeof error.message === "string" && error.message.includes("Refresh Token")))
+    ) {
+      await supabase.auth.signOut();
+    }
   } catch {
     return NextResponse.next({ request: { headers: request.headers } });
   }

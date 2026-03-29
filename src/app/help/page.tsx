@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useTranslation } from "@/lib/i18n";
 import { Logo } from "@/components/Logo";
+import { HelpNavLink } from "@/components/HelpNavLink";
 import { useToast } from "@/components/Toast";
 import { createClient } from "@/lib/supabase/client";
 
@@ -79,7 +80,8 @@ function ContactForm() {
           email,
           subject,
           message,
-          website: honeypot,
+          /* anti-bot; must stay empty — do not use id/name "website" or browsers autofill it */
+          hp: honeypot,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -91,8 +93,10 @@ function ContactForm() {
       toast.success(t("help.contactSuccess"));
       setMessage("");
       setSubject("");
-    } catch {
-      toast.error(t("help.contactError"));
+    } catch (err) {
+      toast.error(
+        err instanceof Error && err.message ? err.message : t("help.contactError")
+      );
     } finally {
       setSending(false);
     }
@@ -102,9 +106,10 @@ function ContactForm() {
     <div className="mt-4">
       <form onSubmit={handleSubmit} className="relative card max-w-xl space-y-4 border border-stone-200 bg-white p-4">
         <div className="sr-only" aria-hidden>
-          <label htmlFor="contact-website">{t("help.contactHoneypotLabel")}</label>
+          <label htmlFor="contact-hp">{t("help.contactHoneypotLabel")}</label>
           <input
-            id="contact-website"
+            id="contact-hp"
+            name="pstudy_hp_verify_blank"
             type="text"
             tabIndex={-1}
             autoComplete="off"
@@ -190,6 +195,7 @@ export default function HelpPage() {
     { id: "import", titleKey: "help.sectionImport", bodyKey: "help.bodyImport" },
     { id: "exams", titleKey: "help.sectionExams", bodyKey: "help.bodyExams" },
     { id: "community", titleKey: "help.sectionCommunity", bodyKey: "help.bodyCommunity" },
+    { id: "peer-review", titleKey: "help.sectionPeerReview", bodyKey: "help.bodyPeerReview" },
     { id: "speech", titleKey: "help.sectionSpeech", bodyKey: "help.bodySpeech" },
     { id: "more-help", titleKey: "help.sectionMoreHelp", bodyKey: "help.bodyMoreHelp" },
     { id: "contact", titleKey: "help.sectionContact", bodyKey: "help.bodyContact", form: true },
@@ -209,6 +215,7 @@ export default function HelpPage() {
             <Link href="/dashboard" className="text-stone-600 hover:text-pstudy-primary">
               {t("dashboard.myDecks")}
             </Link>
+            <HelpNavLink />
             <Link href="/login" className="text-stone-600 hover:text-pstudy-primary">
               {t("home.logIn")}
             </Link>

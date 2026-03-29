@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useTranslation } from "@/lib/i18n";
 import { Logo } from "@/components/Logo";
+import { HelpNavLink } from "@/components/HelpNavLink";
 
 type ApiAttempt = {
   id: string;
@@ -228,11 +229,14 @@ function ExamTakeInner() {
   return (
     <div className="min-h-screen bg-stone-50">
       <header className="border-b border-stone-200 bg-white">
-        <div className="mx-auto flex max-w-lg items-center justify-between px-4 py-4">
+        <div className="mx-auto flex max-w-lg flex-wrap items-center justify-between gap-3 px-4 py-4">
           <Logo size="sm" withText />
-          <Link href="/" className="text-sm text-stone-600 hover:text-pstudy-primary">
-            {t("login.backToHome")}
-          </Link>
+          <nav className="flex flex-wrap items-center gap-4 text-sm">
+            <Link href="/" className="text-stone-600 hover:text-pstudy-primary">
+              {t("login.backToHome")}
+            </Link>
+            <HelpNavLink />
+          </nav>
         </div>
       </header>
       <main className="mx-auto max-w-2xl px-4 py-8">
@@ -385,8 +389,9 @@ export default function ExamTakePage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-stone-50">
+        <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-50 px-4">
           <p className="text-stone-600">{t("common.loading")}</p>
+          <HelpNavLink />
         </div>
       }
     >

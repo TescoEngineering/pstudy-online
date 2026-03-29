@@ -11,6 +11,7 @@ import {
   type ExamAssignmentSummary,
 } from "@/lib/supabase/exams";
 import { Logo } from "@/components/Logo";
+import { HelpNavLink } from "@/components/HelpNavLink";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/components/Toast";
 
@@ -70,8 +71,9 @@ export default function ExamsListPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-stone-50">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-50 px-4">
         <p className="text-stone-600">{t("common.loading")}</p>
+        <HelpNavLink />
       </div>
     );
   }

@@ -74,9 +74,6 @@ export default function CommunityPage() {
             <Link href="/dashboard" className="text-stone-600 hover:text-pstudy-primary">
               {t("dashboard.myDecks")}
             </Link>
-            <Link href="/import" className="text-stone-600 hover:text-pstudy-primary">
-              {t("dashboard.importTxt")}
-            </Link>
             <Link href="/help" className="text-stone-600 hover:text-pstudy-primary">
               {t("help.nav")}
             </Link>
@@ -151,6 +148,15 @@ export default function CommunityPage() {
               <li key={deck.id} className="card flex items-center justify-between">
                 <div>
                   <span className="font-semibold text-stone-900">{deck.title}</span>
+                  {deck.qualityStatus === "checked" ? (
+                    <span className="ml-2 align-middle rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                      {t("deckReview.badgeChecked")}
+                    </span>
+                  ) : (
+                    <span className="ml-2 align-middle rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
+                      {t("deckReview.badgeDraft")}
+                    </span>
+                  )}
                   <p className="text-sm text-stone-500">
                     {deck.items.length} {t("dashboard.items", { count: deck.items.length })}
                     {(deck.fieldOfInterest || deck.topic) && (

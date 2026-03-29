@@ -12,6 +12,9 @@ type ExpandableFieldProps = {
   /** Rows for compact inline view (default 2). Use 1 for single-line MC options. */
   compactRows?: number;
   compactClassName?: string;
+  /** When set, expanded modal shows an extra action (e.g. apply this text to every row). */
+  onApplyToAll?: (value: string) => void;
+  applyToAllLabel?: string;
 };
 
 export function ExpandableField({
@@ -22,6 +25,8 @@ export function ExpandableField({
   rows = 6,
   compactRows = 2,
   compactClassName = "",
+  onApplyToAll,
+  applyToAllLabel,
 }: ExpandableFieldProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [localValue, setLocalValue] = useState(() => toFieldString(value));
@@ -88,24 +93,39 @@ export function ExpandableField({
               value={toFieldString(localValue)}
               onChange={(e) => setLocalValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              onBlur={handleClose}
               autoFocus
               rows={rows}
               className={`w-full resize-none rounded border border-stone-300 px-3 py-2 text-stone-800 placeholder:text-stone-400 focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary ${className}`}
               placeholder={placeholder}
             />
-            <div className="mt-2 flex items-center justify-between">
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-stone-500">
                 Press <kbd className="rounded bg-stone-100 px-1 py-0.5">Enter</kbd> to
                 save · <kbd className="rounded bg-stone-100 px-1 py-0.5">Esc</kbd> to cancel
               </p>
-              <button
-                type="button"
-                onClick={handleClose}
-                className="rounded bg-pstudy-primary px-3 py-1 text-sm font-medium text-white hover:bg-teal-600"
-              >
-                Done
-              </button>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {onApplyToAll ? (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      onApplyToAll(normalizeCommit(localValue));
+                      setIsExpanded(false);
+                    }}
+                    className="rounded border border-stone-300 bg-stone-100 px-3 py-1 text-sm font-medium text-stone-800 hover:bg-stone-200"
+                  >
+                    {applyToAllLabel ?? "Apply to all"}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={handleClose}
+                  className="rounded bg-pstudy-primary px-3 py-1 text-sm font-medium text-white hover:bg-teal-600"
+                >
+                  Done
+                </button>
+              </div>
             </div>
           </div>
         </div>

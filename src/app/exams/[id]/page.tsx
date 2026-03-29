@@ -12,6 +12,7 @@ import {
   type ExamInviteRow,
 } from "@/lib/supabase/exams";
 import { Logo } from "@/components/Logo";
+import { HelpNavLink } from "@/components/HelpNavLink";
 import { useToast } from "@/components/Toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 
@@ -213,8 +214,9 @@ export default function ExamDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-stone-50">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-50 px-4">
         <p className="text-stone-600">{t("common.loading")}</p>
+        <HelpNavLink />
       </div>
     );
   }
@@ -223,9 +225,12 @@ export default function ExamDetailPage() {
     return (
       <div className="min-h-screen bg-stone-50 px-4 py-16 text-center">
         <p className="text-red-600">{error || "—"}</p>
-        <Link href="/exams" className="mt-4 inline-block text-pstudy-primary hover:underline">
-          ← {t("exam.myExams")}
-        </Link>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm">
+          <Link href="/exams" className="text-pstudy-primary hover:underline">
+            ← {t("exam.myExams")}
+          </Link>
+          <HelpNavLink />
+        </div>
       </div>
     );
   }
@@ -233,11 +238,14 @@ export default function ExamDetailPage() {
   return (
     <div className="min-h-screen bg-stone-50">
       <header className="border-b border-stone-200 bg-white">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-4">
           <Logo size="sm" withText />
-          <Link href="/exams" className="text-stone-600 hover:text-pstudy-primary">
-            ← {t("exam.myExams")}
-          </Link>
+          <nav className="flex flex-wrap items-center gap-4 text-sm">
+            <Link href="/exams" className="text-stone-600 hover:text-pstudy-primary">
+              ← {t("exam.myExams")}
+            </Link>
+            <HelpNavLink />
+          </nav>
         </div>
       </header>
 

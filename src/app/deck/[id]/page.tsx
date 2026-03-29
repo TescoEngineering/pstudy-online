@@ -11,6 +11,7 @@ import { ExpandableField } from "@/components/ExpandableField";
 import { PictureUpload } from "@/components/PictureUpload";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Logo } from "@/components/Logo";
+import { HelpNavLink } from "@/components/HelpNavLink";
 import { useToast } from "@/components/Toast";
 import { FIELDS_OF_INTEREST, getTopicsForField } from "@/lib/deck-attributes";
 
@@ -24,8 +25,10 @@ export default function DeckEditorPage() {
   const [title, setTitle] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [fillInstruction, setFillInstruction] = useState("");
   const [removeItemIndex, setRemoveItemIndex] = useState<number | null>(null);
+  const [reviewEmail, setReviewEmail] = useState("");
+  const [reviewSending, setReviewSending] = useState(false);
+  const [reviewInviteOpen, setReviewInviteOpen] = useState(false);
   const lastRowRef = useRef<HTMLTableRowElement>(null);
   const prevItemCountRef = useRef(-1);
 
@@ -40,6 +43,15 @@ export default function DeckEditorPage() {
     }
     prevItemCountRef.current = deck.items.length;
   }, [deck?.items.length]);
+
+  useEffect(() => {
+    if (!reviewInviteOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setReviewInviteOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [reviewInviteOpen]);
 
   useEffect(() => {
     async function load() {
@@ -126,31 +138,64 @@ export default function DeckEditorPage() {
     setRemoveItemIndex(null);
   }
 
-  function fillInstructionForAll() {
+  function fillInstructionForAll(instructionText: string) {
     if (!deck || deck.items.length === 0) return;
+    const v = instructionText.trim();
     const items = deck.items.map((item) => ({
       ...item,
-      instruction: fillInstruction.trim(),
+      instruction: v,
     }));
     updateDeckLocal({ items });
-    setFillInstruction("");
+  }
+
+  async function sendReviewInvite() {
+    if (!deck?.isPublic || deck.qualityStatus === "checked") return;
+    const email = reviewEmail.trim();
+    if (!email) {
+      toast.error(t("deckReview.emailRequired"));
+      return;
+    }
+    setReviewSending(true);
+    try {
+      const res = await fetch("/api/deck-review/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ deckId: id, reviewerEmail: email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "invite failed");
+      toast.success(
+        data.emailed ? t("deckReview.inviteSent") : t("deckReview.inviteCreatedNoEmail")
+      );
+      setReviewEmail("");
+      setReviewInviteOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("deckReview.inviteFailed"));
+    } finally {
+      setReviewSending(false);
+    }
   }
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-stone-50">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-50 px-4">
         <p className="text-stone-600">{t("common.loading")}</p>
+        <HelpNavLink />
       </div>
     );
   }
 
   if (!deck) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-stone-600">{t("practice.deckNotFound")}</p>
-        <Link href="/dashboard" className="ml-2 text-pstudy-primary hover:underline">
-          {t("result.backToDashboard")}
-        </Link>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4">
+        <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
+          <p className="text-stone-600">{t("practice.deckNotFound")}</p>
+          <Link href="/dashboard" className="text-pstudy-primary hover:underline">
+            {t("result.backToDashboard")}
+          </Link>
+        </div>
+        <HelpNavLink />
       </div>
     );
   }
@@ -161,10 +206,14 @@ export default function DeckEditorPage() {
         <div className="mx-auto max-w-5xl space-y-3 px-4 py-4">
           <div className="flex items-center justify-between gap-4">
             <Logo size="sm" withText />
-            <nav className="flex items-center gap-4">
+            <nav className="flex flex-wrap items-center gap-4 text-sm">
               <Link href="/dashboard" className="text-stone-600 hover:text-pstudy-primary">
                 {t("dashboard.myDecks")}
               </Link>
+              <Link href="/community" className="text-stone-600 hover:text-pstudy-primary">
+                {t("dashboard.community")}
+              </Link>
+              <HelpNavLink />
             </nav>
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-stone-100 pt-3">
@@ -218,6 +267,16 @@ export default function DeckEditorPage() {
               />
               {t("deck.shareWithCommunity")}
             </label>
+            {deck?.isPublic && deck.qualityStatus === "checked" ? (
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+                {t("deckReview.badgeChecked")}
+              </span>
+            ) : null}
+            {deck?.isPublic && deck.qualityStatus !== "checked" ? (
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
+                {t("deckReview.badgeDraft")}
+              </span>
+            ) : null}
             <span
               className={`inline-block min-w-[5rem] text-sm text-stone-500 ${saving ? "" : "invisible"}`}
               aria-hidden={!saving}
@@ -231,24 +290,6 @@ export default function DeckEditorPage() {
       <main className="mx-auto max-w-5xl px-4 py-6">
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <span className="text-stone-600">{deck.items.length} {t("dashboard.items", { count: deck.items.length })}</span>
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="text-sm text-stone-600">{t("deck.fillInstructionForAll")}:</label>
-            <input
-              type="text"
-              value={fillInstruction}
-              onChange={(e) => setFillInstruction(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && fillInstructionForAll()}
-              placeholder={t("deck.fillInstructionPlaceholder")}
-              className="rounded border border-stone-300 px-3 py-1.5 text-sm min-w-[14rem] focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-            />
-            <button
-              onClick={fillInstructionForAll}
-              disabled={deck.items.length === 0}
-              className="rounded bg-stone-200 px-3 py-1.5 text-sm font-medium hover:bg-stone-300 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {t("deck.applyToAll")}
-            </button>
-          </div>
           <button type="button" onClick={addItem} className="btn-primary text-sm">
             {t("deck.addItem")}
           </button>
@@ -258,6 +299,15 @@ export default function DeckEditorPage() {
           <Link href={`/practice/${id}`} className="btn-primary text-sm">
             {t("common.practice")}
           </Link>
+          {deck?.isPublic && deck.qualityStatus !== "checked" ? (
+            <button
+              type="button"
+              onClick={() => setReviewInviteOpen(true)}
+              className="btn-secondary text-sm"
+            >
+              {t("deckReview.peerReview")}
+            </button>
+          ) : null}
         </div>
 
         <div className="overflow-x-auto">
@@ -334,6 +384,8 @@ export default function DeckEditorPage() {
                       placeholder={t("deck.instructionPlaceholder")}
                       rows={3}
                       compactClassName="w-full min-w-[6rem]"
+                      onApplyToAll={(v) => fillInstructionForAll(v)}
+                      applyToAllLabel={t("deck.fillThisInstructionForAll")}
                     />
                   </td>
                   <td className="p-2">
@@ -366,6 +418,69 @@ export default function DeckEditorPage() {
         title={t("deck.removeItemConfirm")}
         confirmLabel={t("common.remove")}
       />
+
+      {reviewInviteOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={(e) => e.target === e.currentTarget && setReviewInviteOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-stone-200 bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="review-invite-dialog-title"
+          >
+            <h2
+              id="review-invite-dialog-title"
+              className="text-lg font-semibold text-stone-900"
+            >
+              {t("deckReview.requestTitle")}
+            </h2>
+            <p className="mt-2 text-sm text-stone-600">{t("deckReview.requestHint")}</p>
+            <div className="mt-4">
+              <label htmlFor="review-email" className="mb-1 block text-xs font-medium text-stone-600">
+                {t("deckReview.reviewerEmail")}
+              </label>
+              <input
+                id="review-email"
+                type="email"
+                value={reviewEmail}
+                onChange={(e) => setReviewEmail(e.target.value)}
+                autoComplete="email"
+                autoFocus
+                placeholder={t("deckReview.reviewerEmailPlaceholder")}
+                className="w-full rounded border border-stone-300 px-3 py-2 text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void sendReviewInvite();
+                  }
+                }}
+              />
+            </div>
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setReviewInviteOpen(false)}
+                className="btn-secondary"
+                disabled={reviewSending}
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void sendReviewInvite()}
+                disabled={reviewSending}
+                className="btn-primary disabled:opacity-50"
+              >
+                {reviewSending ? t("deckReview.sending") : t("deckReview.sendInvite")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

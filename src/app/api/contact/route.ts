@@ -31,6 +31,8 @@ export async function POST(request: NextRequest) {
     name?: string;
     subject?: string;
     message?: string;
+    /** Honeypot — must be empty. Key is not "website" to avoid browser autofill false positives. */
+    hp?: string;
     website?: string;
   };
   try {
@@ -39,7 +41,8 @@ export async function POST(request: NextRequest) {
     return bad("Invalid JSON");
   }
 
-  if (body.website?.trim()) {
+  const trap = (body.hp ?? body.website ?? "").trim();
+  if (trap) {
     return NextResponse.json({ ok: true });
   }
 

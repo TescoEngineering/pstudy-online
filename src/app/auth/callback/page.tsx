@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { HelpNavLink } from "@/components/HelpNavLink";
 import { createClient } from "@/lib/supabase/client";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
@@ -153,12 +154,15 @@ export default function AuthCallbackPage() {
   }, []);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-stone-50">
+    <div className="relative flex min-h-screen flex-col items-center justify-center bg-stone-50 px-4">
       <p className="text-stone-600">
         {status === "loading" && "Setting up your session…"}
         {status === "success" && "Redirecting…"}
         {status === "error" && "Something went wrong. Redirecting to login…"}
       </p>
+      <div className="absolute bottom-6 left-0 right-0 flex justify-center text-sm">
+        <HelpNavLink />
+      </div>
     </div>
   );
 }

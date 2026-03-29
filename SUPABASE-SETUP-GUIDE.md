@@ -193,6 +193,21 @@ CREATE INDEX IF NOT EXISTS idx_decks_topic ON decks(topic);
 
 ---
 
+## Step 4e: Deck quality + peer review (optional)
+
+To use **Draft / Checked** community quality and **peer review invites**, run the SQL in the project file **`supabase-deck-review.sql`** (SQL Editor → paste → Run).
+
+After that, add to **`.env.local`** (and Vercel):
+
+| Variable | Purpose |
+|----------|---------|
+| `SUPABASE_SERVICE_ROLE_KEY` | **Service role** key from Supabase **Project Settings → API** (keep secret). Required for review save/complete and invites. |
+| `NEXT_PUBLIC_APP_URL` | **Public site URL** (e.g. `https://www.pstudy.be`) for links in review emails. |
+
+Invite and “review complete” notifications use **Resend** when `RESEND_API_KEY` and `CONTACT_FROM_EMAIL` are set (same as the contact form).
+
+---
+
 ## Step 5: Enable Email Sign-Up (Optional)
 
 By default, Supabase allows sign-up. To customize:

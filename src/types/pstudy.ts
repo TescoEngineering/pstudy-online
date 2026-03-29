@@ -24,6 +24,11 @@ export interface Deck {
   fieldOfInterest?: string | null;
   /** Specific sub-category (e.g. Europe, Middle Ages, French) */
   topic?: string | null;
+  /**
+   * Community quality: draft = not yet peer-verified; checked = verified by an invited reviewer.
+   * Only applies meaningfully when the deck is shared with the community.
+   */
+  qualityStatus?: "draft" | "checked";
 }
 
 export type PracticeMode = "straight" | "multiple-choice";

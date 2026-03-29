@@ -16,6 +16,7 @@ import {
   type ExamPromptMode,
 } from "@/lib/exam-validation";
 import { Logo } from "@/components/Logo";
+import { HelpNavLink } from "@/components/HelpNavLink";
 import { useToast } from "@/components/Toast";
 import { toError } from "@/lib/supabase/error-utils";
 
@@ -117,8 +118,9 @@ function NewExamForm() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-stone-50">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-50 px-4">
         <p className="text-stone-600">{t("common.loading")}</p>
+        <HelpNavLink />
       </div>
     );
   }
@@ -126,11 +128,19 @@ function NewExamForm() {
   return (
     <div className="min-h-screen bg-stone-50">
       <header className="border-b border-stone-200 bg-white">
-        <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-4">
+        <div className="mx-auto flex max-w-2xl flex-wrap items-center justify-between gap-3 px-4 py-4">
           <Logo size="sm" withText />
-          <Link href="/exams" className="text-stone-600 hover:text-pstudy-primary">
-            ← {t("exam.myExams")}
-          </Link>
+          <nav className="flex flex-wrap items-center gap-4 text-sm">
+            <Link href="/exams" className="text-stone-600 hover:text-pstudy-primary">
+              ← {t("exam.myExams")}
+            </Link>
+            {deckId ? (
+              <Link href={`/deck/${deckId}`} className="text-stone-600 hover:text-pstudy-primary">
+                ← {t("exam.backToDeck")}
+              </Link>
+            ) : null}
+            <HelpNavLink />
+          </nav>
         </div>
       </header>
 
@@ -280,8 +290,9 @@ export default function NewExamPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-stone-50">
+        <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-50 px-4">
           <p className="text-stone-600">{t("common.loading")}</p>
+          <HelpNavLink />
         </div>
       }
     >

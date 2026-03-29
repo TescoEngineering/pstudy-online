@@ -14,6 +14,7 @@ import {
 import { useToast } from "@/components/Toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Logo } from "@/components/Logo";
+import { HelpNavLink } from "@/components/HelpNavLink";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -82,8 +83,9 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-stone-50">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-50 px-4">
         <p className="text-stone-600">{t("common.loading")}</p>
+        <HelpNavLink />
       </div>
     );
   }
@@ -186,6 +188,17 @@ export default function DashboardPage() {
                     >
                       {deck.isPublic ? t("dashboard.shared") : t("dashboard.private")}
                     </span>
+                    {deck.isPublic ? (
+                      deck.qualityStatus === "checked" ? (
+                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                          {t("deckReview.badgeChecked")}
+                        </span>
+                      ) : (
+                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
+                          {t("deckReview.badgeDraft")}
+                        </span>
+                      )
+                    ) : null}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">

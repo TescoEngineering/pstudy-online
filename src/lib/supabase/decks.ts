@@ -10,6 +10,7 @@ export type DbDeck = {
   is_public?: boolean;
   field_of_interest?: string | null;
   topic?: string | null;
+  quality_status?: "draft" | "checked";
 };
 
 export type DbItem = {
@@ -48,6 +49,7 @@ function dbItemToItem(db: DbItem): PStudyItem {
 }
 
 function dbDeckToDeck(db: DbDeck, items: PStudyItem[], includeOwner = false): Deck {
+  const qs = db.quality_status;
   return {
     id: db.id,
     title: db.title,
@@ -57,6 +59,7 @@ function dbDeckToDeck(db: DbDeck, items: PStudyItem[], includeOwner = false): De
     isPublic: db.is_public ?? false,
     fieldOfInterest: db.field_of_interest ?? null,
     topic: db.topic ?? null,
+    ...(qs === "draft" || qs === "checked" ? { qualityStatus: qs } : { qualityStatus: "draft" as const }),
     ...(includeOwner && { ownerId: db.owner_id }),
   };
 }
@@ -172,7 +175,8 @@ export async function copyDeckToMine(deckId: string): Promise<Deck> {
     topic: sourceDeck.topic,
   };
   await saveDeckWithItems(deckWithItems);
-  return deckWithItems;
+  await supabase.from("decks").update({ quality_status: "draft" }).eq("id", newDeck.id);
+  return { ...deckWithItems, qualityStatus: "draft" as const };
 }
 
 export async function createDeck(title: string = "Untitled deck"): Promise<Deck> {

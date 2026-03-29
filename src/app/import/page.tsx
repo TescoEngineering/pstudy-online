@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "@/lib/i18n";
 import { Logo } from "@/components/Logo";
+import { HelpNavLink } from "@/components/HelpNavLink";
 import { parsePStudyTxt } from "@/lib/txt-import";
 import { Deck, PStudyItem } from "@/types/pstudy";
 import Link from "next/link";
@@ -123,8 +124,9 @@ export default function ImportPage() {
 
   if (!ready) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-stone-50">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-50 px-4">
         <p className="text-stone-600">{t("common.loading")}</p>
+        <HelpNavLink />
       </div>
     );
   }
