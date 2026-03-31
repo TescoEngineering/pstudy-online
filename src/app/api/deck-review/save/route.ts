@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
       multiplechoice4: item.multiplechoice4,
       picture_url: item.picture_url,
       instruction: item.instruction,
+      keywords: item.keywords ?? "",
     };
     const { error: uErr } = await admin.from("items").update(row).eq("id", item.id);
     if (uErr) return bad(uErr.message || "Save failed", 500);

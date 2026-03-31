@@ -25,6 +25,7 @@ function dbItemToItem(db: DbItem): PStudyItem {
     multiplechoice4: strFromDb(db.multiplechoice4),
     picture_url: strFromDb(db.picture_url),
     instruction: strFromDb(db.instruction),
+    keywords: strFromDb(db.keywords),
   };
 }
 

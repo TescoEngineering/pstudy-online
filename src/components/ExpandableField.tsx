@@ -1,6 +1,34 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "@/lib/i18n";
+import { splitKeywordTags } from "@/lib/flashcard";
+import { KeywordHighlight } from "@/components/KeywordHighlight";
+import { isSpeechRecognitionSupported, startListening } from "@/lib/speech";
+import { useToast } from "@/components/Toast";
+
+type KeywordTaggingApi = {
+  keywords: string;
+  onKeywordsChange: (next: string) => void;
+};
+
+export type DictationOptions = {
+  /** Speech recognition locale (default: Practice “Speech language” from localStorage, else `en`). */
+  lang?: string;
+};
+
+function resolveDictationLang(explicit?: string): string {
+  if (explicit?.trim()) return explicit.trim();
+  if (typeof window !== "undefined") {
+    try {
+      const s = localStorage.getItem("pstudy-speech-lang");
+      if (s?.trim()) return s.trim();
+    } catch {
+      /* ignore */
+    }
+  }
+  return "en";
+}
 
 type ExpandableFieldProps = {
   /** DB / state may pass null; empty must stay "" so placeholders show. */
@@ -15,6 +43,18 @@ type ExpandableFieldProps = {
   /** When set, expanded modal shows an extra action (e.g. apply this text to every row). */
   onApplyToAll?: (value: string) => void;
   applyToAllLabel?: string;
+  /**
+   * If true (default), plain Enter in the expanded modal saves and closes.
+   * Set false for multiline fields (e.g. flashcard answer with bullets) so Enter inserts a newline;
+   * use Done or click outside to save.
+   */
+  saveOnEnter?: boolean;
+  /**
+   * Expanded editor: select text and add it to the Keywords field + live highlight preview (flashcard practice).
+   */
+  keywordTagging?: KeywordTaggingApi;
+  /** Browser speech-to-text in the expanded editor (Chrome / Edge Web Speech API). */
+  dictation?: DictationOptions;
 };
 
 export function ExpandableField({
@@ -27,13 +67,122 @@ export function ExpandableField({
   compactClassName = "",
   onApplyToAll,
   applyToAllLabel,
+  saveOnEnter = true,
+  keywordTagging,
+  dictation,
 }: ExpandableFieldProps) {
+  const { t } = useTranslation();
+  const toast = useToast();
   const [isExpanded, setIsExpanded] = useState(false);
   const [localValue, setLocalValue] = useState(() => toFieldString(value));
+  const expandedTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const dictationStopRef = useRef<(() => void) | null>(null);
+  const dictationWantedRef = useRef(false);
+  const dictationRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [dictationListening, setDictationListening] = useState(false);
 
   useEffect(() => {
     setLocalValue(toFieldString(value));
   }, [value, isExpanded]);
+
+  const stopDictation = useCallback(() => {
+    dictationWantedRef.current = false;
+    if (dictationRestartTimerRef.current) {
+      clearTimeout(dictationRestartTimerRef.current);
+      dictationRestartTimerRef.current = null;
+    }
+    dictationStopRef.current?.();
+    dictationStopRef.current = null;
+    setDictationListening(false);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      dictationWantedRef.current = false;
+      if (dictationRestartTimerRef.current) {
+        clearTimeout(dictationRestartTimerRef.current);
+        dictationRestartTimerRef.current = null;
+      }
+      dictationStopRef.current?.();
+      dictationStopRef.current = null;
+    };
+  }, []);
+
+  const startDictation = useCallback(() => {
+    if (!dictation) return;
+    if (!isSpeechRecognitionSupported()) {
+      toast.error(t("practice.speechInputUnavailable"));
+      return;
+    }
+    const lang = resolveDictationLang(dictation.lang);
+    stopDictation();
+    dictationWantedRef.current = true;
+    setDictationListening(true);
+
+    const runListen = () => {
+      if (!dictationWantedRef.current) return;
+      const stop = startListening({
+        lang,
+        continuous: true,
+        onResult: (text, isFinal) => {
+          if (!isFinal || !text.trim()) return;
+          if (!dictationWantedRef.current) return;
+          const ta = expandedTextareaRef.current;
+          if (!ta) return;
+          const ttext = text.trim();
+          setLocalValue((prev) => {
+            const s = Math.min(Math.max(0, ta.selectionStart), prev.length);
+            const e = Math.min(Math.max(0, ta.selectionEnd), prev.length);
+            const before = prev.slice(0, s);
+            const after = prev.slice(e);
+            let mid = ttext;
+            const needsSpaceBefore =
+              before.length > 0 && !/\s$/.test(before);
+            const needsSpaceAfter = after.length > 0 && !/^\s/.test(after);
+            if (needsSpaceBefore) mid = ` ${mid}`;
+            if (needsSpaceAfter) mid = `${mid} `;
+            const next = before + mid + after;
+            const caret = (before + mid).length;
+            queueMicrotask(() => {
+              const t2 = expandedTextareaRef.current;
+              if (t2) {
+                t2.focus();
+                t2.setSelectionRange(caret, caret);
+              }
+            });
+            return next;
+          });
+        },
+        onError: (msg) => {
+          toast.error(msg);
+          stopDictation();
+        },
+        onEnd: () => {
+          if (!dictationWantedRef.current) return;
+          dictationRestartTimerRef.current = setTimeout(() => {
+            dictationRestartTimerRef.current = null;
+            if (!dictationWantedRef.current) return;
+            dictationStopRef.current?.();
+            dictationStopRef.current = null;
+            runListen();
+          }, 380);
+        },
+      });
+      if (stop) {
+        dictationStopRef.current = stop;
+      } else {
+        toast.error(t("practice.speechInputUnavailable"));
+        stopDictation();
+      }
+    };
+
+    runListen();
+  }, [dictation, stopDictation, toast, t]);
+
+  const toggleDictation = useCallback(() => {
+    if (dictationListening) stopDictation();
+    else startDictation();
+  }, [dictationListening, startDictation, stopDictation]);
 
   const handleOpen = () => {
     setIsExpanded(true);
@@ -41,17 +190,35 @@ export function ExpandableField({
   };
 
   const handleClose = () => {
+    stopDictation();
     onChange(normalizeCommit(localValue));
     setIsExpanded(false);
   };
 
+  const addSelectionAsKeyword = useCallback(() => {
+    if (!keywordTagging) return;
+    const ta = expandedTextareaRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    if (start === end) return;
+    const slice = toFieldString(localValue).slice(start, end).trim().replace(/\s+/g, " ");
+    if (!slice) return;
+    const existing = splitKeywordTags(keywordTagging.keywords);
+    const seen = new Set(existing.map((k) => k.toLowerCase()));
+    if (seen.has(slice.toLowerCase())) return;
+    existing.push(slice);
+    keywordTagging.onKeywordsChange(existing.join("; "));
+  }, [keywordTagging, localValue]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (saveOnEnter && e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleClose();
     }
     if (e.key === "Escape") {
       e.preventDefault();
+      stopDictation();
       setLocalValue(toFieldString(value));
       setIsExpanded(false);
     }
@@ -90,18 +257,88 @@ export function ExpandableField({
             onClick={(e) => e.stopPropagation()}
           >
             <textarea
+              ref={expandedTextareaRef}
               value={toFieldString(localValue)}
               onChange={(e) => setLocalValue(e.target.value)}
               onKeyDown={handleKeyDown}
               autoFocus
               rows={rows}
-              className={`w-full resize-none rounded border border-stone-300 px-3 py-2 text-stone-800 placeholder:text-stone-400 focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary ${className}`}
+              className={`w-full rounded border border-stone-300 px-3 py-2 text-stone-800 placeholder:text-stone-400 focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary ${keywordTagging || dictation ? "min-h-[10rem] resize-y" : "resize-none"} ${className}`}
               placeholder={placeholder}
             />
+            {dictation && isSpeechRecognitionSupported() ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={toggleDictation}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
+                    dictationListening
+                      ? "border-emerald-400 bg-emerald-100 text-emerald-900"
+                      : "border-stone-300 bg-white text-stone-700 hover:border-pstudy-primary hover:text-pstudy-primary"
+                  }`}
+                >
+                  {dictationListening
+                    ? t("deck.dictationStop")
+                    : t("deck.dictationStart")}
+                </button>
+                <span className="text-xs text-stone-500">{t("deck.dictationHint")}</span>
+                {dictationListening ? (
+                  <span className="flex items-center gap-1 text-xs text-emerald-700">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-current" />
+                    {t("deck.dictationListening")}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+            {keywordTagging ? (
+              <div className="mt-3 space-y-2 rounded-lg border border-amber-100/80 bg-amber-50/30 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={addSelectionAsKeyword}
+                    className="rounded border border-amber-300 bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-950 hover:bg-amber-200"
+                  >
+                    {t("deck.addSelectionAsKeyword")}
+                  </button>
+                  <span className="text-xs text-stone-600">
+                    {t("deck.keywordMarkerHint")}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-stone-600">
+                    {t("deck.keywordHighlightPreview")}
+                  </p>
+                  <div className="mt-1 max-h-36 overflow-y-auto rounded border border-stone-200 bg-white px-3 py-2 text-sm leading-relaxed text-stone-800 shadow-inner">
+                    {toFieldString(localValue).trim() ? (
+                      <KeywordHighlight
+                        text={toFieldString(localValue)}
+                        keywords={splitKeywordTags(keywordTagging.keywords)}
+                      />
+                    ) : (
+                      <span className="text-stone-400">—</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-stone-500">
-                Press <kbd className="rounded bg-stone-100 px-1 py-0.5">Enter</kbd> to
-                save · <kbd className="rounded bg-stone-100 px-1 py-0.5">Esc</kbd> to cancel
+                {saveOnEnter ? (
+                  <>
+                    Press <kbd className="rounded bg-stone-100 px-1 py-0.5">Enter</kbd> to
+                    save · <kbd className="rounded bg-stone-100 px-1 py-0.5">Shift</kbd>+
+                    <kbd className="rounded bg-stone-100 px-1 py-0.5">Enter</kbd> for new line ·{" "}
+                    <kbd className="rounded bg-stone-100 px-1 py-0.5">Esc</kbd> to cancel
+                  </>
+                ) : (
+                  <>
+                    <kbd className="rounded bg-stone-100 px-1 py-0.5">Enter</kbd> adds a line · Done
+                    or click outside to save ·{" "}
+                    <kbd className="rounded bg-stone-100 px-1 py-0.5">Esc</kbd> to cancel
+                  </>
+                )}
               </p>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {onApplyToAll ? (
@@ -109,6 +346,7 @@ export function ExpandableField({
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
+                      stopDictation();
                       onApplyToAll(normalizeCommit(localValue));
                       setIsExpanded(false);
                     }}

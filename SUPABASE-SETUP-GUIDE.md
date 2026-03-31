@@ -83,7 +83,8 @@ CREATE TABLE items (
   multiplechoice3 TEXT DEFAULT '',
   multiplechoice4 TEXT DEFAULT '',
   picture_url TEXT DEFAULT '',
-  instruction TEXT DEFAULT ''
+  instruction TEXT DEFAULT '',
+  keywords TEXT DEFAULT ''
 );
 
 -- Allow users to read/write only their own decks
@@ -126,6 +127,8 @@ USING (is_public = true);
 ```
 
 5. You should see **"Success. No rows returned"** – that’s correct.
+
+**Already have a database?** If `items` was created earlier without `keywords`, run the snippet in **`supabase/items-add-keywords.sql`** once in the SQL Editor.
 
 ---
 

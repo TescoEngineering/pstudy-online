@@ -9,6 +9,8 @@ export interface PStudyItem {
   multiplechoice4: string;
   picture_url: string;   // URL of image (if any)
   instruction: string;
+  /** Optional flashcard hints; comma or semicolon separated (e.g. "past tense; irregular"). */
+  keywords?: string;
 }
 
 /** A deck = one exercise file */

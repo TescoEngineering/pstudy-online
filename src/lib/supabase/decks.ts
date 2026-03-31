@@ -25,6 +25,7 @@ export type DbItem = {
   multiplechoice4: string;
   picture_url: string;
   instruction: string;
+  keywords?: string;
 };
 
 /** Supabase may return NULL; whitespace-only should behave as empty for placeholders. */
@@ -45,6 +46,7 @@ function dbItemToItem(db: DbItem): PStudyItem {
     multiplechoice4: strFromDb(db.multiplechoice4),
     picture_url: strFromDb(db.picture_url),
     instruction: strFromDb(db.instruction),
+    keywords: strFromDb(db.keywords),
   };
 }
 
@@ -255,6 +257,7 @@ export async function saveDeckWithItems(deck: Deck): Promise<void> {
       multiplechoice4: item.multiplechoice4,
       picture_url: item.picture_url,
       instruction: item.instruction,
+      keywords: item.keywords ?? "",
     };
 
     if (existingIds.has(item.id)) {
@@ -293,6 +296,7 @@ export async function addItemToDeck(deckId: string, item: PStudyItem, order: num
       multiplechoice4: item.multiplechoice4,
       picture_url: item.picture_url,
       instruction: item.instruction,
+      keywords: item.keywords ?? "",
     })
     .select("id")
     .single();

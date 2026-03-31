@@ -122,6 +122,7 @@ export default function DeckEditorPage() {
       multiplechoice4: "",
       picture_url: "",
       instruction: "",
+      keywords: "",
     };
     updateDeckLocal({ items: [...deck.items, newItem] });
   }
@@ -318,6 +319,7 @@ export default function DeckEditorPage() {
                 <th className="p-2 font-medium">{t("deck.description")}</th>
                 <th className="p-2 font-medium">{t("deck.explanation")}</th>
                 <th className="p-2 font-medium">MC 1–4</th>
+                <th className="p-2 font-medium min-w-[6rem]">{t("deck.keywords")}</th>
                 <th className="p-2 font-medium">{t("deck.instruction")}</th>
                 <th className="p-2 font-medium">{t("deck.picture")}</th>
                 <th className="w-24 p-2"></th>
@@ -339,6 +341,7 @@ export default function DeckEditorPage() {
                       }
                       placeholder={t("deck.questionPlaceholder")}
                       compactClassName="w-full min-w-[8rem]"
+                      saveOnEnter={false}
                     />
                   </td>
                   <td className="p-2">
@@ -349,6 +352,13 @@ export default function DeckEditorPage() {
                       }
                       placeholder={t("deck.answerPlaceholder")}
                       compactClassName="w-full min-w-[8rem]"
+                      saveOnEnter={false}
+                      keywordTagging={{
+                        keywords: item.keywords ?? "",
+                        onKeywordsChange: (next) =>
+                          updateItem(i, { ...item, keywords: next }),
+                      }}
+                      dictation={{}}
                     />
                   </td>
                   <td className="p-2">
@@ -374,6 +384,18 @@ export default function DeckEditorPage() {
                         />
                       ))}
                     </div>
+                  </td>
+                  <td className="p-2">
+                    <input
+                      type="text"
+                      value={item.keywords ?? ""}
+                      onChange={(e) =>
+                        updateItem(i, { ...item, keywords: e.target.value })
+                      }
+                      placeholder={t("deck.keywordsPlaceholder")}
+                      className="w-full min-w-[6rem] rounded border border-stone-300 px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                      title={t("deck.keywordsHint")}
+                    />
                   </td>
                   <td className="p-2">
                     <ExpandableField
