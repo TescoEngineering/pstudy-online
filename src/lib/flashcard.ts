@@ -144,3 +144,15 @@ export function splitKeywordTags(raw: string): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
 }
+
+/**
+ * Tags used for regex highlighting. Single-character tags are skipped: a lone letter like "t"
+ * matches every occurrence in text and is almost always accidental (e.g. from “add words”).
+ */
+export function keywordTagsEligibleForHighlight(tags: readonly string[]): string[] {
+  return tags.map((k) => k.trim()).filter((k) => k.length >= 2);
+}
+
+export function splitKeywordTagsForHighlight(raw: string): string[] {
+  return keywordTagsEligibleForHighlight(splitKeywordTags(raw));
+}

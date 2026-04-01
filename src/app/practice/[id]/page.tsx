@@ -29,6 +29,7 @@ import { SPEECH_LANGUAGES } from "@/lib/speech-languages";
 import {
   parseFlashcardRevealSegments,
   splitKeywordTags,
+  splitKeywordTagsForHighlight,
 } from "@/lib/flashcard";
 import { FlashcardKeywordHighlight } from "@/components/FlashcardKeywordHighlight";
 import {
@@ -207,6 +208,9 @@ export default function PracticePage() {
   flashcardRevealedRef.current = flashcardRevealed;
   /** Flashcard session: practice all cards or only those not marked "known" (localStorage). */
   const [flashcardCardFilter, setFlashcardCardFilter] = useState<"all" | "unknown">("all");
+  /** Flashcard: flip through cards without answering (warm-up before practice). */
+  const [flashcardBrowseOnly, setFlashcardBrowseOnly] = useState(false);
+  const flashcardBrowseOnlyRef = useRef(false);
   /** Bumps after toggling "known" so labels that read localStorage re-render. */
   const [knownUiBump, setKnownUiBump] = useState(0);
   const stopListeningRef = useRef<(() => void) | null>(null);
@@ -248,6 +252,7 @@ export default function PracticePage() {
   speakModeRef.current = speakMode;
   showResultRef.current = showResult;
   modeRef.current = mode;
+  flashcardBrowseOnlyRef.current = flashcardBrowseOnly;
 
   const deckAnswerVocabulary = useMemo(() => {
     if (!list.length) return [];
@@ -417,7 +422,7 @@ export default function PracticePage() {
 
   const flashcardKeywordTags = useMemo(() => {
     const card = displayCard ?? current;
-    return card ? splitKeywordTags(String(card.keywords ?? "")) : [];
+    return card ? splitKeywordTagsForHighlight(String(card.keywords ?? "")) : [];
   }, [displayCard, current]);
 
   useLayoutEffect(() => {
@@ -457,6 +462,25 @@ export default function PracticePage() {
   }, [promptMode, mode]);
 
   useEffect(() => {
+    if (mode !== "flashcard") setFlashcardBrowseOnly(false);
+  }, [mode]);
+
+  useEffect(() => {
+    if (repeatMistakesMode) setFlashcardBrowseOnly(false);
+  }, [repeatMistakesMode]);
+
+  useEffect(() => {
+    if (mode === "flashcard" && flashcardBrowseOnly) {
+      setFlashcardRevealed(false);
+      setAnswer("");
+      bumpListenGeneration();
+      stopListeningRef.current?.();
+      setIsListening(false);
+      stopListeningRef.current = null;
+    }
+  }, [flashcardBrowseOnly, mode, bumpListenGeneration]);
+
+  useEffect(() => {
     setLastHeardRaw("");
   }, [current?.id]);
 
@@ -481,6 +505,7 @@ export default function PracticePage() {
 
   const startSpeakListening = useCallback(async () => {
     const isFlashcard = mode === "flashcard";
+    if (isFlashcard && flashcardBrowseOnly) return;
     if (
       (mode !== "straight" && !isFlashcard) ||
       !speakMode ||
@@ -502,6 +527,7 @@ export default function PracticePage() {
       (modeRef.current !== "straight" && !afterDelayFlashcard) ||
       !speakModeRef.current ||
       showResultRef.current ||
+      (afterDelayFlashcard && flashcardBrowseOnlyRef.current) ||
       (afterDelayFlashcard && flashcardRevealedRef.current) ||
       speechMappingPanelOpenRef.current
     ) {
@@ -721,6 +747,7 @@ export default function PracticePage() {
     flashcardSttEngine,
     bumpListenGeneration,
     deckAnswerVocabulary,
+    flashcardBrowseOnly,
   ]);
 
   // When item loads: if listenMode, speak the question (only once per item). If speakMode (and straight/flashcard), start listening after TTS ends.
@@ -861,6 +888,11 @@ export default function PracticePage() {
     setShowResult(false);
     setResultCardItem(null);
     setFlashcardRevealed(false);
+    if (mode === "flashcard" && flashcardBrowseOnly && !repeatMistakesMode) {
+      if (displayIndex + 1 >= total) setIndex(0);
+      else setIndex((i) => i + 1);
+      return;
+    }
     if (repeatMistakesMode) {
       return; // List/index already updated in checkAnswer
     }
@@ -879,7 +911,36 @@ export default function PracticePage() {
       return;
     }
     setIndex((i) => i + 1);
-  }, [displayIndex, total, repeatMistakesMode, goToResults, bumpListenGeneration]);
+  }, [
+    displayIndex,
+    total,
+    repeatMistakesMode,
+    goToResults,
+    bumpListenGeneration,
+    mode,
+    flashcardBrowseOnly,
+    repeatMistakesMode,
+  ]);
+
+  const prev = useCallback(() => {
+    if (nextInFlightRef.current) return;
+    nextInFlightRef.current = true;
+    bumpListenGeneration();
+    if (ttsAfterListenTimerRef.current) {
+      clearTimeout(ttsAfterListenTimerRef.current);
+      ttsAfterListenTimerRef.current = null;
+    }
+    stopSpeaking();
+    stopListeningRef.current?.();
+    setIsListening(false);
+    stopListeningRef.current = null;
+    setAnswer("");
+    setShowResult(false);
+    setResultCardItem(null);
+    setFlashcardRevealed(false);
+    if (total <= 0) return;
+    setIndex((i) => (i <= 0 ? total - 1 : i - 1));
+  }, [total, bumpListenGeneration]);
 
   const revealFlashcard = useCallback(() => {
     bumpListenGeneration();
@@ -944,6 +1005,17 @@ export default function PracticePage() {
       if (e.key !== "Enter" || e.repeat) return;
 
       if (mode === "flashcard") {
+        if (flashcardBrowseOnly) {
+          if (!flashcardRevealed) {
+            e.preventDefault();
+            revealFlashcard();
+            return;
+          }
+          if (e.shiftKey) return;
+          e.preventDefault();
+          next();
+          return;
+        }
         if (!flashcardRevealed) {
           if (e.shiftKey) {
             e.preventDefault();
@@ -966,7 +1038,15 @@ export default function PracticePage() {
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [showResult, next, mode, handleEnterToCheck, flashcardRevealed, revealFlashcard]);
+  }, [
+    showResult,
+    next,
+    mode,
+    handleEnterToCheck,
+    flashcardRevealed,
+    revealFlashcard,
+    flashcardBrowseOnly,
+  ]);
 
   if (!deck) {
     return (
@@ -1045,6 +1125,13 @@ export default function PracticePage() {
             <span className="text-stone-600">
               {repeatMistakesMode ? (
                 <>{t("practice.repeatMistakesLeft", { count: list.length })} · ✓ {correct} ✗ {wrong}</>
+              ) : mode === "flashcard" && flashcardBrowseOnly ? (
+                <>
+                  {t("practice.flashcardBrowseProgress", {
+                    current: displayIndex + 1,
+                    total,
+                  })}
+                </>
               ) : (
                 <>{displayIndex + 1} / {total} · ✓ {correct} ✗ {wrong}</>
               )}
@@ -1141,8 +1228,21 @@ export default function PracticePage() {
                       </span>
                     ) : null}
                   </fieldset>
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={flashcardBrowseOnly}
+                      onChange={(e) => setFlashcardBrowseOnly(e.target.checked)}
+                      className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                    />
+                    <span className="text-sm text-stone-700">
+                      {t("practice.flashcardBrowseOnly")}
+                    </span>
+                  </label>
                   <p className="w-full text-xs text-stone-500 sm:max-w-xl">
-                    {t("practice.flashcardFormatHint")}
+                    {flashcardBrowseOnly
+                      ? t("practice.flashcardBrowseHint")
+                      : t("practice.flashcardFormatHint")}
                   </p>
                 </>
               ) : null}
@@ -1167,7 +1267,8 @@ export default function PracticePage() {
             <span className="text-sm text-stone-600">{t("practice.listenMode")}</span>
           </label>
           {(mode === "straight" || mode === "flashcard") &&
-            (isSpeechRecognitionSupported() || cloudSttAvailable) && (
+            (isSpeechRecognitionSupported() || cloudSttAvailable) &&
+            !(mode === "flashcard" && flashcardBrowseOnly) && (
             <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
@@ -1192,7 +1293,7 @@ export default function PracticePage() {
               <span className="text-sm text-stone-600">{t("practice.considerOnlyDeckAnswers")}</span>
             </label>
           )}
-          {mode === "flashcard" && speakMode && (
+          {mode === "flashcard" && speakMode && !flashcardBrowseOnly && (
             <label className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-stone-600">{t("practice.flashcardSttEngine")}</span>
               <select
@@ -1216,6 +1317,7 @@ export default function PracticePage() {
           )}
           {(mode === "straight" || mode === "flashcard") &&
             speakMode &&
+            !(mode === "flashcard" && flashcardBrowseOnly) &&
             !(mode === "straight" && vocabularyBias) && (
             <label className="flex cursor-pointer items-center gap-2">
               <input
@@ -1385,7 +1487,9 @@ export default function PracticePage() {
                       <FlashcardRevealedView
                         text={hiddenSideCorrect}
                         keywordTags={flashcardKeywordTags}
-                        compareText={answer}
+                        compareText={
+                          flashcardBrowseOnly ? hiddenSideCorrect : answer
+                        }
                         side="official"
                       />
                     </div>
@@ -1498,6 +1602,62 @@ export default function PracticePage() {
                 )}
               </>
             ) : mode === "flashcard" ? (
+              flashcardBrowseOnly ? (
+                <div className="mx-auto w-full max-w-xl space-y-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button type="button" onClick={prev} className="btn-secondary">
+                      {t("common.previous")}
+                    </button>
+                    {!flashcardRevealed ? (
+                      <button
+                        type="button"
+                        onClick={revealFlashcard}
+                        className="btn-primary"
+                      >
+                        {t("practice.flashcardShowBack")}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setFlashcardRevealed(false)}
+                        className="btn-secondary"
+                      >
+                        {t("practice.flashcardShowFront")}
+                      </button>
+                    )}
+                    <button type="button" onClick={next} className="btn-primary">
+                      {t("common.next")}
+                    </button>
+                  </div>
+                  {flashcardRevealed ? (
+                    <div className="flex flex-wrap items-center gap-2 border-t border-stone-100 pt-3">
+                      <button
+                        type="button"
+                        onClick={handleListenAnswer}
+                        className="rounded border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-600 transition hover:border-pstudy-primary hover:text-pstudy-primary"
+                        title={t("practice.listenToAnswer")}
+                      >
+                        {t("common.listen")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!current) return;
+                          const nextKnown = !isItemKnown(id, current.id);
+                          setItemKnown(id, current.id, nextKnown);
+                          setKnownUiBump((n) => n + 1);
+                        }}
+                        className="btn-secondary"
+                      >
+                        {isItemKnown(id, current.id)
+                          ? t("practice.flashcardMarkUnknown")
+                          : t("practice.flashcardMarkKnown")}
+                      </button>
+                    </div>
+                  ) : null}
+                  <p className="text-xs text-stone-500">{t("practice.flashcardBrowseKeys")}</p>
+                </div>
+              ) : (
               <div className="mx-auto w-full max-w-xl space-y-4">
                 {!flashcardRevealed ? (
                   <div>
@@ -1620,6 +1780,7 @@ export default function PracticePage() {
                   )}
                 </div>
               </div>
+              )
             ) : (
               <div className="flex flex-col gap-2">
                 {mcOptions.map((opt) => (

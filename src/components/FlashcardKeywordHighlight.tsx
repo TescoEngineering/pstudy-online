@@ -1,5 +1,7 @@
 "use client";
 
+import { keywordTagsEligibleForHighlight } from "@/lib/flashcard";
+
 /**
  * Flashcard practice: highlight keyword tags inside text.
  * - Official side: green if the same keyword also appears in the user's answer; red if not.
@@ -17,7 +19,7 @@ export function FlashcardKeywordHighlight({
   compareText: string;
   side: "official" | "user";
 }) {
-  const terms = keywordTags.map((k) => k.trim()).filter(Boolean);
+  const terms = keywordTagsEligibleForHighlight(keywordTags);
   if (!text) return null;
   if (!terms.length) {
     return <span className="whitespace-pre-wrap break-words">{text}</span>;

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { useTranslation } from "@/lib/i18n";
-import { splitKeywordTags } from "@/lib/flashcard";
+import { splitKeywordTags, splitKeywordTagsForHighlight } from "@/lib/flashcard";
 import { KeywordHighlight } from "@/components/KeywordHighlight";
 import { isSpeechRecognitionSupported, startListening } from "@/lib/speech";
 import { useToast } from "@/components/Toast";
@@ -16,6 +16,40 @@ export type DictationOptions = {
   /** Speech recognition locale (default: Practice “Speech language” from localStorage, else `en`). */
   lang?: string;
 };
+
+/** Expand range so any partially included non-whitespace run is fully included (full “word” = run of non-whitespace). */
+function expandToWordRuns(text: string, start: number, end: number): [number, number] {
+  let s = Math.max(0, Math.min(start, text.length));
+  let e = Math.max(0, Math.min(end, text.length));
+  if (e < s) [s, e] = [e, s];
+  while (s > 0 && /\S/.test(text[s - 1]!)) s--;
+  while (e < text.length && /\S/.test(text[e]!)) e++;
+  return [s, e];
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** True if [selStart, selEnd) overlaps any case-insensitive occurrence of `keyword` in `fullText`. */
+function keywordOverlapsSelection(
+  fullText: string,
+  selStart: number,
+  selEnd: number,
+  keyword: string
+): boolean {
+  const k = keyword.trim();
+  if (!k) return false;
+  const re = new RegExp(escapeRegExp(k), "gi");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(fullText)) !== null) {
+    const pos = m.index;
+    const matchEnd = pos + m[0].length;
+    if (pos < selEnd && matchEnd > selStart) return true;
+    if (m[0].length === 0) re.lastIndex++;
+  }
+  return false;
+}
 
 function resolveDictationLang(explicit?: string): string {
   if (explicit?.trim()) return explicit.trim();
@@ -76,6 +110,8 @@ export function ExpandableField({
   const [isExpanded, setIsExpanded] = useState(false);
   const [localValue, setLocalValue] = useState(() => toFieldString(value));
   const expandedTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  /** Backdrop for keyword highlights: scroll position synced from textarea (plain textarea cannot style partial text). */
+  const keywordHighlightLayerRef = useRef<HTMLDivElement | null>(null);
   const dictationStopRef = useRef<(() => void) | null>(null);
   const dictationWantedRef = useRef(false);
   const dictationRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -195,6 +231,18 @@ export function ExpandableField({
     setIsExpanded(false);
   };
 
+  const syncKeywordHighlightScroll = useCallback(() => {
+    const ta = expandedTextareaRef.current;
+    const layer = keywordHighlightLayerRef.current;
+    if (!ta || !layer) return;
+    layer.style.transform = `translateY(-${ta.scrollTop}px)`;
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!isExpanded || !keywordTagging) return;
+    syncKeywordHighlightScroll();
+  }, [isExpanded, keywordTagging, localValue, syncKeywordHighlightScroll]);
+
   const addSelectionAsKeyword = useCallback(() => {
     if (!keywordTagging) return;
     const ta = expandedTextareaRef.current;
@@ -202,13 +250,31 @@ export function ExpandableField({
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
     if (start === end) return;
-    const slice = toFieldString(localValue).slice(start, end).trim().replace(/\s+/g, " ");
-    if (!slice) return;
+    const text = toFieldString(localValue);
+    const [from, to] = expandToWordRuns(text, start, end);
+    const phrase = text.slice(from, to).replace(/\s+/g, " ").trim();
+    if (phrase.length < 2) return;
     const existing = splitKeywordTags(keywordTagging.keywords);
     const seen = new Set(existing.map((k) => k.toLowerCase()));
-    if (seen.has(slice.toLowerCase())) return;
-    existing.push(slice);
+    if (seen.has(phrase.toLowerCase())) return;
+    existing.push(phrase);
     keywordTagging.onKeywordsChange(existing.join("; "));
+  }, [keywordTagging, localValue]);
+
+  const removeSelectionFromKeywords = useCallback(() => {
+    if (!keywordTagging) return;
+    const ta = expandedTextareaRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    if (start === end) return;
+    const text = toFieldString(localValue);
+    const existing = splitKeywordTags(keywordTagging.keywords);
+    const next = existing.filter(
+      (k) => !keywordOverlapsSelection(text, start, end, k)
+    );
+    if (next.length === existing.length) return;
+    keywordTagging.onKeywordsChange(next.join("; "));
   }, [keywordTagging, localValue]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -256,16 +322,53 @@ export function ExpandableField({
             className="w-full max-w-2xl rounded-lg border border-stone-200 bg-white p-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <textarea
-              ref={expandedTextareaRef}
-              value={toFieldString(localValue)}
-              onChange={(e) => setLocalValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              autoFocus
-              rows={rows}
-              className={`w-full rounded border border-stone-300 px-3 py-2 text-stone-800 placeholder:text-stone-400 focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary ${keywordTagging || dictation ? "min-h-[10rem] resize-y" : "resize-none"} ${className}`}
-              placeholder={placeholder}
-            />
+            {keywordTagging ? (
+              <div className="relative w-full overflow-hidden rounded border border-stone-300 focus-within:border-pstudy-primary focus-within:ring-2 focus-within:ring-pstudy-primary">
+                <div
+                  className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded"
+                  aria-hidden
+                >
+                  <div
+                    ref={keywordHighlightLayerRef}
+                    className={`box-border px-3 py-2 text-left text-base leading-normal text-stone-800 ${className}`}
+                  >
+                    {toFieldString(localValue) ? (
+                      <KeywordHighlight
+                        text={toFieldString(localValue)}
+                        keywords={splitKeywordTagsForHighlight(keywordTagging.keywords)}
+                      />
+                    ) : (
+                      <span className="whitespace-pre-wrap break-words">{"\u00a0"}</span>
+                    )}
+                  </div>
+                </div>
+                <textarea
+                  ref={expandedTextareaRef}
+                  value={toFieldString(localValue)}
+                  onChange={(e) => setLocalValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onScroll={syncKeywordHighlightScroll}
+                  autoFocus
+                  rows={rows}
+                  spellCheck={false}
+                  className={`relative z-10 box-border min-h-[10rem] w-full resize-y border-0 bg-transparent px-3 py-2 text-left text-base leading-normal text-transparent caret-stone-800 placeholder:text-stone-400 selection:bg-teal-200/40 focus:outline-none focus:ring-0 ${className}`}
+                  placeholder={placeholder}
+                />
+              </div>
+            ) : (
+              <textarea
+                ref={expandedTextareaRef}
+                value={toFieldString(localValue)}
+                onChange={(e) => setLocalValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                autoFocus
+                rows={rows}
+                className={`w-full rounded border border-stone-300 px-3 py-2 text-stone-800 placeholder:text-stone-400 focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary ${
+                  dictation ? "min-h-[10rem] resize-y" : "resize-none"
+                } ${className}`}
+                placeholder={placeholder}
+              />
+            )}
             {dictation && isSpeechRecognitionSupported() ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <button
@@ -302,25 +405,16 @@ export function ExpandableField({
                   >
                     {t("deck.addSelectionAsKeyword")}
                   </button>
-                  <span className="text-xs text-stone-600">
-                    {t("deck.keywordMarkerHint")}
-                  </span>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={removeSelectionFromKeywords}
+                    className="rounded border border-stone-300 bg-white px-3 py-1.5 text-sm font-medium text-stone-800 hover:border-amber-400 hover:bg-amber-50"
+                  >
+                    {t("deck.removeSelectionFromKeyword")}
+                  </button>
                 </div>
-                <div>
-                  <p className="text-xs font-medium text-stone-600">
-                    {t("deck.keywordHighlightPreview")}
-                  </p>
-                  <div className="mt-1 max-h-36 overflow-y-auto rounded border border-stone-200 bg-white px-3 py-2 text-sm leading-relaxed text-stone-800 shadow-inner">
-                    {toFieldString(localValue).trim() ? (
-                      <KeywordHighlight
-                        text={toFieldString(localValue)}
-                        keywords={splitKeywordTags(keywordTagging.keywords)}
-                      />
-                    ) : (
-                      <span className="text-stone-400">—</span>
-                    )}
-                  </div>
-                </div>
+                <p className="text-xs text-stone-600">{t("deck.keywordMarkerHint")}</p>
               </div>
             ) : null}
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2">

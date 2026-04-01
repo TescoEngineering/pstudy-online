@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildFlashcardDisplayMultiline,
   getFlashcardLineMeta,
+  keywordTagsEligibleForHighlight,
   parseFlashcardRevealSegments,
   splitKeywordTags,
+  splitKeywordTagsForHighlight,
 } from "./flashcard";
 
 describe("getFlashcardLineMeta", () => {
@@ -57,5 +59,17 @@ describe("parseFlashcardRevealSegments", () => {
 describe("splitKeywordTags", () => {
   it("splits on comma and semicolon", () => {
     expect(splitKeywordTags("a, b;c")).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("keywordTagsEligibleForHighlight", () => {
+  it("drops single-character tags", () => {
+    expect(keywordTagsEligibleForHighlight(["hello", "t", "x"])).toEqual(["hello"]);
+  });
+});
+
+describe("splitKeywordTagsForHighlight", () => {
+  it("splits and drops single-character tags", () => {
+    expect(splitKeywordTagsForHighlight("foo; t; bar")).toEqual(["foo", "bar"]);
   });
 });

@@ -1,5 +1,7 @@
 "use client";
 
+import { keywordTagsEligibleForHighlight } from "@/lib/flashcard";
+
 /** Highlights keyword phrases (case-insensitive) inside free text. */
 
 export function KeywordHighlight({
@@ -9,7 +11,7 @@ export function KeywordHighlight({
   text: string;
   keywords: readonly string[];
 }) {
-  const terms = keywords.map((k) => k.trim()).filter(Boolean);
+  const terms = keywordTagsEligibleForHighlight(keywords);
   if (!text) return null;
   if (!terms.length) {
     return <span className="whitespace-pre-wrap break-words">{text}</span>;
@@ -28,7 +30,7 @@ export function KeywordHighlight({
           return (
             <mark
               key={i}
-              className="rounded-sm bg-amber-200 px-0.5 font-medium text-stone-900"
+              className="rounded-sm bg-amber-200 px-0.5 text-stone-900"
             >
               {part}
             </mark>
