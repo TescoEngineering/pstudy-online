@@ -2,6 +2,44 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, useCallback, useRef } from "react";
+
+const DECK_COLUMN_FILTERS_KEY = "pstudy-deck-column-filters";
+
+type DeckColumnFilters = {
+  mc: boolean;
+  keywords: boolean;
+  instruction: boolean;
+};
+
+const defaultColumnFilters: DeckColumnFilters = {
+  mc: true,
+  keywords: true,
+  instruction: true,
+};
+
+function loadDeckColumnFilters(deckId: string): DeckColumnFilters {
+  if (typeof window === "undefined") return defaultColumnFilters;
+  try {
+    const raw = localStorage.getItem(`${DECK_COLUMN_FILTERS_KEY}:${deckId}`);
+    if (!raw) return defaultColumnFilters;
+    const p = JSON.parse(raw) as Partial<DeckColumnFilters>;
+    return {
+      mc: typeof p.mc === "boolean" ? p.mc : true,
+      keywords: typeof p.keywords === "boolean" ? p.keywords : true,
+      instruction: typeof p.instruction === "boolean" ? p.instruction : true,
+    };
+  } catch {
+    return defaultColumnFilters;
+  }
+}
+
+function saveDeckColumnFilters(deckId: string, f: DeckColumnFilters) {
+  try {
+    localStorage.setItem(`${DECK_COLUMN_FILTERS_KEY}:${deckId}`, JSON.stringify(f));
+  } catch {
+    /* ignore */
+  }
+}
 import Link from "next/link";
 import { Deck, PStudyItem } from "@/types/pstudy";
 import { useTranslation } from "@/lib/i18n";
@@ -31,6 +69,21 @@ export default function DeckEditorPage() {
   const [reviewInviteOpen, setReviewInviteOpen] = useState(false);
   const lastRowRef = useRef<HTMLTableRowElement>(null);
   const prevItemCountRef = useRef(-1);
+  const [columnFilters, setColumnFilters] = useState<DeckColumnFilters>(defaultColumnFilters);
+  const skipNextColumnSaveRef = useRef(true);
+
+  useEffect(() => {
+    skipNextColumnSaveRef.current = true;
+    setColumnFilters(loadDeckColumnFilters(id));
+  }, [id]);
+
+  useEffect(() => {
+    if (skipNextColumnSaveRef.current) {
+      skipNextColumnSaveRef.current = false;
+      return;
+    }
+    saveDeckColumnFilters(id, columnFilters);
+  }, [id, columnFilters]);
 
   useEffect(() => {
     if (!deck) return;
@@ -289,7 +342,8 @@ export default function DeckEditorPage() {
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-6">
-        <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="mb-4 flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-3">
           <span className="text-stone-600">{deck.items.length} {t("dashboard.items", { count: deck.items.length })}</span>
           <button type="button" onClick={addItem} className="btn-primary text-sm">
             {t("deck.addItem")}
@@ -309,6 +363,47 @@ export default function DeckEditorPage() {
               {t("deckReview.peerReview")}
             </button>
           ) : null}
+          </div>
+          <fieldset className="rounded-lg border border-stone-200 bg-stone-50/80 px-3 py-2">
+            <legend className="px-1 text-xs font-medium text-stone-600">
+              {t("deck.columnFiltersHint")}
+            </legend>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-700">
+                <input
+                  type="checkbox"
+                  checked={columnFilters.mc}
+                  onChange={(e) =>
+                    setColumnFilters((f) => ({ ...f, mc: e.target.checked }))
+                  }
+                  className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                />
+                {t("deck.showMcColumn")}
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-700">
+                <input
+                  type="checkbox"
+                  checked={columnFilters.keywords}
+                  onChange={(e) =>
+                    setColumnFilters((f) => ({ ...f, keywords: e.target.checked }))
+                  }
+                  className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                />
+                {t("deck.showKeywordsColumn")}
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-700">
+                <input
+                  type="checkbox"
+                  checked={columnFilters.instruction}
+                  onChange={(e) =>
+                    setColumnFilters((f) => ({ ...f, instruction: e.target.checked }))
+                  }
+                  className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                />
+                {t("deck.showInstructionColumn")}
+              </label>
+            </div>
+          </fieldset>
         </div>
 
         <div className="overflow-x-auto">
@@ -318,9 +413,15 @@ export default function DeckEditorPage() {
                 <th className="p-2 font-medium">#</th>
                 <th className="p-2 font-medium">{t("deck.description")}</th>
                 <th className="p-2 font-medium">{t("deck.explanation")}</th>
-                <th className="p-2 font-medium">MC 1–4</th>
-                <th className="p-2 font-medium min-w-[6rem]">{t("deck.keywords")}</th>
-                <th className="p-2 font-medium">{t("deck.instruction")}</th>
+                {columnFilters.mc ? (
+                  <th className="p-2 font-medium">MC 1–4</th>
+                ) : null}
+                {columnFilters.keywords ? (
+                  <th className="p-2 font-medium min-w-[6rem]">{t("deck.keywords")}</th>
+                ) : null}
+                {columnFilters.instruction ? (
+                  <th className="p-2 font-medium">{t("deck.instruction")}</th>
+                ) : null}
                 <th className="p-2 font-medium">{t("deck.picture")}</th>
                 <th className="w-24 p-2"></th>
               </tr>
@@ -361,55 +462,61 @@ export default function DeckEditorPage() {
                       dictation={{}}
                     />
                   </td>
-                  <td className="p-2">
-                    <div className="flex flex-col gap-1">
-                      {[1, 2, 3, 4].map((n) => (
-                        <ExpandableField
-                          key={n}
-                          value={
-                            item[
-                              `multiplechoice${n}` as keyof PStudyItem
-                            ] as string
-                          }
-                          onChange={(v) =>
-                            updateItem(i, {
-                              ...item,
-                              [`multiplechoice${n}`]: v,
-                            })
-                          }
-                          placeholder={`MC ${n}`}
-                          rows={3}
-                          compactRows={1}
-                          compactClassName="min-w-[6rem] text-xs py-0.5"
-                        />
-                      ))}
-                    </div>
-                  </td>
-                  <td className="p-2">
-                    <input
-                      type="text"
-                      value={item.keywords ?? ""}
-                      onChange={(e) =>
-                        updateItem(i, { ...item, keywords: e.target.value })
-                      }
-                      placeholder={t("deck.keywordsPlaceholder")}
-                      className="w-full min-w-[6rem] rounded border border-stone-300 px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-                      title={t("deck.keywordsHint")}
-                    />
-                  </td>
-                  <td className="p-2">
-                    <ExpandableField
-                      value={item.instruction}
-                      onChange={(v) =>
-                        updateItem(i, { ...item, instruction: v })
-                      }
-                      placeholder={t("deck.instructionPlaceholder")}
-                      rows={3}
-                      compactClassName="w-full min-w-[6rem]"
-                      onApplyToAll={(v) => fillInstructionForAll(v)}
-                      applyToAllLabel={t("deck.fillThisInstructionForAll")}
-                    />
-                  </td>
+                  {columnFilters.mc ? (
+                    <td className="p-2">
+                      <div className="flex flex-col gap-1">
+                        {[1, 2, 3, 4].map((n) => (
+                          <ExpandableField
+                            key={n}
+                            value={
+                              item[
+                                `multiplechoice${n}` as keyof PStudyItem
+                              ] as string
+                            }
+                            onChange={(v) =>
+                              updateItem(i, {
+                                ...item,
+                                [`multiplechoice${n}`]: v,
+                              })
+                            }
+                            placeholder={`MC ${n}`}
+                            rows={3}
+                            compactRows={1}
+                            compactClassName="min-w-[6rem] text-xs py-0.5"
+                          />
+                        ))}
+                      </div>
+                    </td>
+                  ) : null}
+                  {columnFilters.keywords ? (
+                    <td className="p-2">
+                      <input
+                        type="text"
+                        value={item.keywords ?? ""}
+                        onChange={(e) =>
+                          updateItem(i, { ...item, keywords: e.target.value })
+                        }
+                        placeholder={t("deck.keywordsPlaceholder")}
+                        className="w-full min-w-[6rem] rounded border border-stone-300 px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                        title={t("deck.keywordsHint")}
+                      />
+                    </td>
+                  ) : null}
+                  {columnFilters.instruction ? (
+                    <td className="p-2">
+                      <ExpandableField
+                        value={item.instruction}
+                        onChange={(v) =>
+                          updateItem(i, { ...item, instruction: v })
+                        }
+                        placeholder={t("deck.instructionPlaceholder")}
+                        rows={3}
+                        compactClassName="w-full min-w-[6rem]"
+                        onApplyToAll={(v) => fillInstructionForAll(v)}
+                        applyToAllLabel={t("deck.fillThisInstructionForAll")}
+                      />
+                    </td>
+                  ) : null}
                   <td className="p-2">
                     <PictureUpload
                       value={item.picture_url}

@@ -108,7 +108,11 @@
     "dictationHint": "Inserts at the cursor (Chrome / Edge). Language follows Practice → Speech language when set in this browser.",
     "dictationListening": "Listening…",
     "removeItemConfirm": "Remove this item?",
-    "saving": "Saving..."
+    "saving": "Saving...",
+    "columnFiltersHint": "Show or hide columns in the table (saved in this browser for this deck).",
+    "showMcColumn": "MC 1–4",
+    "showKeywordsColumn": "Keywords",
+    "showInstructionColumn": "Instruction"
   },
   "practice": {
     "exerciseSetup": "Exercise setup",
@@ -186,7 +190,26 @@
     "dropHint": "Drop a .txt file here or click to browse",
     "pasteHint": "Or click here and paste (Ctrl+V)",
     "pasteNote": "You can also click the box and paste (Ctrl+V).",
-    "importing": "Importing..."
+    "importing": "Importing...",
+    "aiSectionTitle": "Generate deck from text (AI)",
+    "aiSectionIntro": "Paste or upload plain text (notes, article, book excerpt). PSTUDY will ask an AI model to build flashcards (with keyword hints) and/or multiple-choice items. Your text is sent to the AI provider configured on the server — do not use for confidential material unless your policy allows it.",
+    "aiDocumentLabel": "Source text",
+    "aiDocumentPlaceholder": "Paste your teaching content here…",
+    "aiLoadTxt": "Load .txt file",
+    "aiOutputLabel": "What to generate",
+    "aiOutputFlashcards": "Flashcards only",
+    "aiOutputMc": "Multiple choice only",
+    "aiOutputBoth": "Flashcards and multiple choice",
+    "aiFlashcardCount": "Target number of flashcards",
+    "aiMcCount": "Target number of MC questions",
+    "aiDeckTitle": "Deck title (optional)",
+    "aiDeckTitlePlaceholder": "e.g. Unit 3 — Photosynthesis",
+    "aiGenerate": "Generate deck",
+    "aiGenerating": "Generating… this can take up to a minute.",
+    "aiSuccess": "Deck created — opening editor.",
+    "aiErrorGeneric": "Generation failed. Try again or shorten the text.",
+    "aiErrorNotConfigured": "AI is not configured on this server (OPENAI_API_KEY). Ask your administrator.",
+    "aiTruncatedNote": "Note: your text was shortened to fit model limits; you can split long sources."
   },
   "community": {
     "browseHint": "Browse decks shared by others. Copy any deck to your collection to edit and practice.",
