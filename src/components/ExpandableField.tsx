@@ -89,6 +89,8 @@ type ExpandableFieldProps = {
   keywordTagging?: KeywordTaggingApi;
   /** Browser speech-to-text in the expanded editor (Chrome / Edge Web Speech API). */
   dictation?: DictationOptions;
+  /** When true, value is shown but cannot be edited (e.g. community-checked deck). */
+  readOnly?: boolean;
 };
 
 export function ExpandableField({
@@ -104,6 +106,7 @@ export function ExpandableField({
   saveOnEnter = true,
   keywordTagging,
   dictation,
+  readOnly = false,
 }: ExpandableFieldProps) {
   const { t } = useTranslation();
   const toast = useToast();
@@ -221,6 +224,7 @@ export function ExpandableField({
   }, [dictationListening, startDictation, stopDictation]);
 
   const handleOpen = () => {
+    if (readOnly) return;
     setIsExpanded(true);
     setLocalValue(toFieldString(value));
   };
@@ -296,19 +300,39 @@ export function ExpandableField({
     <>
       <textarea
         value={compactValue}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={(e) => {
-          const v = e.currentTarget.value;
-          if (v !== "" && v.trim() === "") onChange("");
-        }}
+        readOnly={readOnly}
+        onChange={
+          readOnly
+            ? undefined
+            : (e) => {
+                onChange(e.target.value);
+              }
+        }
+        onBlur={
+          readOnly
+            ? undefined
+            : (e) => {
+                const v = e.currentTarget.value;
+                if (v !== "" && v.trim() === "") onChange("");
+              }
+        }
         onDoubleClick={(e) => {
+          if (readOnly) return;
           e.preventDefault();
           handleOpen();
         }}
         rows={compactRows}
-        title="Double-click to expand"
-        className={`block w-full resize-none rounded border border-stone-200 px-2 py-1 text-left text-stone-800 placeholder:text-stone-400 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary ${compactClassName}`}
-        placeholder={placeholder || "Click to edit"}
+        title={
+          readOnly
+            ? t("deck.checkedFieldReadOnlyHint")
+            : t("deck.expandFieldHint")
+        }
+        className={`block w-full resize-none rounded border px-2 py-1 text-left text-stone-800 placeholder:text-stone-400 ${
+          readOnly
+            ? "cursor-default border-stone-100 bg-stone-50/90 text-stone-700"
+            : "border-stone-200 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+        } ${compactClassName}`}
+        placeholder={readOnly ? "" : placeholder || t("deck.clickToEdit")}
       />
 
       {isExpanded && (

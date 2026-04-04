@@ -1,5 +1,6 @@
 import { createClient } from "./client";
 import { Deck, PStudyItem } from "@/types/pstudy";
+import { isDeckContentLanguageCode } from "@/lib/deck-content-language";
 
 export type DbDeck = {
   id: string;
@@ -11,6 +12,7 @@ export type DbDeck = {
   field_of_interest?: string | null;
   topic?: string | null;
   quality_status?: "draft" | "checked";
+  content_language?: string | null;
 };
 
 export type DbItem = {
@@ -61,6 +63,7 @@ function dbDeckToDeck(db: DbDeck, items: PStudyItem[], includeOwner = false): De
     isPublic: db.is_public ?? false,
     fieldOfInterest: db.field_of_interest ?? null,
     topic: db.topic ?? null,
+    contentLanguage: db.content_language ?? null,
     ...(qs === "draft" || qs === "checked" ? { qualityStatus: qs } : { qualityStatus: "draft" as const }),
     ...(includeOwner && { ownerId: db.owner_id }),
   };
@@ -116,6 +119,15 @@ export type PublicDecksFilters = {
   search?: string;
   fieldOfInterest?: string | null;
   topic?: string | null;
+  /** If non-empty, only decks whose `content_language` is in this list (and optionally unspecified — see below). */
+  languages?: string[];
+  /** When filtering by `languages`, also include decks with no `content_language` set. Default true. */
+  includeUnspecifiedLanguage?: boolean;
+  /**
+   * If set, only decks whose stored pair has this code as the **second** language (`*,code` after comma).
+   * Single-language decks do not match. Combined with {@link languages} via AND.
+   */
+  secondLanguage?: string | null;
 };
 
 /** Fetch public decks (for Community page) */
@@ -137,6 +149,33 @@ export async function fetchPublicDecks(filters?: PublicDecksFilters): Promise<De
     query = query.eq("topic", filters.topic);
   }
 
+  const langs = filters?.languages?.filter((c) => typeof c === "string" && c.trim().length > 0) ?? [];
+  if (langs.length > 0) {
+    const includeUnspecified = filters?.includeUnspecifiedLanguage !== false;
+    const langClauses: string[] = [];
+    for (const raw of langs) {
+      const code = raw.trim().toLowerCase();
+      if (!isDeckContentLanguageCode(code)) continue;
+      langClauses.push(`content_language.eq.${code}`);
+      langClauses.push(`content_language.like."${code},%"`);
+      langClauses.push(`content_language.like."%,${code}"`);
+    }
+    if (langClauses.length > 0) {
+      const orBody = includeUnspecified
+        ? `content_language.is.null,${langClauses.join(",")}`
+        : langClauses.join(",");
+      query = query.or(orBody);
+    }
+  }
+
+  const secondRaw = filters?.secondLanguage?.trim();
+  if (secondRaw) {
+    const code = secondRaw.toLowerCase();
+    if (isDeckContentLanguageCode(code)) {
+      query = query.like("content_language", `%,${code}`);
+    }
+  }
+
   const { data: decks, error } = await query;
 
   if (error) throw error;
@@ -153,6 +192,49 @@ export async function fetchPublicDecks(filters?: PublicDecksFilters): Promise<De
     result.push(dbDeckToDeck(d, itemList, true));
   }
   return result;
+}
+
+/** Stable error code for UI copy; checked decks cannot be edited. */
+export const DECK_CHECKED_READONLY = "DECK_CHECKED_READONLY";
+
+/** Duplicate a deck you own (e.g. checked deck you cannot edit). New deck is private draft. */
+export async function duplicateOwnedDeck(deckId: string): Promise<Deck> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not logged in");
+
+  const { data: row, error: rowErr } = await supabase
+    .from("decks")
+    .select("owner_id")
+    .eq("id", deckId)
+    .single();
+  if (rowErr || !row || row.owner_id !== user.id) {
+    throw new Error("Deck not found or access denied");
+  }
+
+  const sourceDeck = await fetchDeck(deckId);
+  if (!sourceDeck) throw new Error("Deck not found");
+
+  const newDeck = await createDeck(`Copy of ${sourceDeck.title}`);
+  const itemsWithNewIds: PStudyItem[] = sourceDeck.items.map((it) => ({
+    ...it,
+    id: crypto.randomUUID(),
+  }));
+  const deckWithItems: Deck = {
+    ...newDeck,
+    items: itemsWithNewIds,
+    fieldOfInterest: sourceDeck.fieldOfInterest ?? null,
+    topic: sourceDeck.topic ?? null,
+    contentLanguage: sourceDeck.contentLanguage ?? null,
+    isPublic: false,
+  };
+  await saveDeckWithItems(deckWithItems);
+  await supabase.from("decks").update({ quality_status: "draft" }).eq("id", newDeck.id);
+
+  const fresh = await fetchDeck(newDeck.id);
+  return fresh ?? deckWithItems;
 }
 
 /** Copy a public deck to the current user's decks */
@@ -175,10 +257,70 @@ export async function copyDeckToMine(deckId: string): Promise<Deck> {
     items: itemsWithNewIds,
     fieldOfInterest: sourceDeck.fieldOfInterest,
     topic: sourceDeck.topic,
+    contentLanguage: sourceDeck.contentLanguage ?? null,
   };
   await saveDeckWithItems(deckWithItems);
   await supabase.from("decks").update({ quality_status: "draft" }).eq("id", newDeck.id);
   return { ...deckWithItems, qualityStatus: "draft" as const };
+}
+
+/** Concatenate items from several decks into one new deck. Preserves `sourceDeckIds` order; assigns new item IDs. Original decks are unchanged. Copies field/topic from the first source. */
+export async function mergeDecksIntoNew(sourceDeckIdsInOrder: string[], title: string): Promise<Deck> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not logged in");
+
+  const seen = new Set<string>();
+  const orderedIds: string[] = [];
+  for (const id of sourceDeckIdsInOrder) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      orderedIds.push(id);
+    }
+  }
+  if (orderedIds.length < 2) throw new Error("Select at least two decks to merge");
+
+  const sources: Deck[] = [];
+  for (const id of orderedIds) {
+    const { data: row, error: rowErr } = await supabase
+      .from("decks")
+      .select("owner_id")
+      .eq("id", id)
+      .single();
+    if (rowErr || !row || row.owner_id !== user.id) {
+      throw new Error("Deck not found or access denied");
+    }
+    const deck = await fetchDeck(id);
+    if (!deck) throw new Error("Deck not found");
+    sources.push(deck);
+  }
+
+  const mergedItems: PStudyItem[] = [];
+  for (const d of sources) {
+    for (const it of d.items) {
+      mergedItems.push({ ...it, id: crypto.randomUUID() });
+    }
+  }
+
+  const first = sources[0]!;
+  const safeTitle = title.trim() || "Merged deck";
+  const newDeck = await createDeck(safeTitle);
+  const deckWithItems: Deck = {
+    ...newDeck,
+    title: safeTitle,
+    items: mergedItems,
+    isPublic: false,
+    fieldOfInterest: first.fieldOfInterest ?? null,
+    topic: first.topic ?? null,
+    contentLanguage: first.contentLanguage ?? null,
+  };
+  await saveDeckWithItems(deckWithItems);
+  await supabase.from("decks").update({ quality_status: "draft" }).eq("id", newDeck.id);
+
+  const fresh = await fetchDeck(newDeck.id);
+  return fresh ?? deckWithItems;
 }
 
 export async function createDeck(title: string = "Untitled deck"): Promise<Deck> {
@@ -201,7 +343,13 @@ export async function createDeck(title: string = "Untitled deck"): Promise<Deck>
 
 export async function updateDeck(
   id: string,
-  updates: { title?: string; is_public?: boolean; field_of_interest?: string | null; topic?: string | null }
+  updates: {
+    title?: string;
+    is_public?: boolean;
+    field_of_interest?: string | null;
+    topic?: string | null;
+    content_language?: string | null;
+  }
 ): Promise<void> {
   const supabase = createClient();
   const { error } = await supabase
@@ -223,8 +371,21 @@ export async function deleteDeck(id: string): Promise<void> {
 
 export async function saveDeckWithItems(deck: Deck): Promise<void> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) throw new Error("Not logged in");
+
+  const { data: meta, error: metaErr } = await supabase
+    .from("decks")
+    .select("owner_id, quality_status")
+    .eq("id", deck.id)
+    .single();
+  if (metaErr || !meta) throw new Error("Deck not found");
+  if (meta.owner_id !== user.id) throw new Error("Not allowed");
+  if (meta.quality_status === "checked") {
+    throw new Error(DECK_CHECKED_READONLY);
+  }
 
   await supabase
     .from("decks")
@@ -234,6 +395,7 @@ export async function saveDeckWithItems(deck: Deck): Promise<void> {
       ...(deck.isPublic !== undefined && { is_public: deck.isPublic }),
       ...(deck.fieldOfInterest !== undefined && { field_of_interest: deck.fieldOfInterest }),
       ...(deck.topic !== undefined && { topic: deck.topic }),
+      ...(deck.contentLanguage !== undefined && { content_language: deck.contentLanguage }),
     })
     .eq("id", deck.id);
 
@@ -282,6 +444,18 @@ export async function saveDeckWithItems(deck: Deck): Promise<void> {
 
 export async function addItemToDeck(deckId: string, item: PStudyItem, order: number): Promise<string> {
   const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not logged in");
+  const { data: meta } = await supabase
+    .from("decks")
+    .select("owner_id, quality_status")
+    .eq("id", deckId)
+    .single();
+  if (!meta || meta.owner_id !== user.id) throw new Error("Not allowed");
+  if (meta.quality_status === "checked") throw new Error(DECK_CHECKED_READONLY);
+
   const { data, error } = await supabase
     .from("items")
     .insert({

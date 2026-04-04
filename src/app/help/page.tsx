@@ -191,7 +191,9 @@ export default function HelpPage() {
   const sections = [
     { id: "getting-started", titleKey: "help.sectionGettingStarted", bodyKey: "help.bodyGettingStarted" },
     { id: "decks", titleKey: "help.sectionDecks", bodyKey: "help.bodyDecks" },
+    { id: "merge-decks", titleKey: "help.sectionMergeDecks", bodyKey: "help.bodyMergeDecks" },
     { id: "practice", titleKey: "help.sectionPractice", bodyKey: "help.bodyPractice" },
+    { id: "flashcards", titleKey: "help.sectionFlashcards", bodyKey: "help.bodyFlashcards" },
     { id: "import", titleKey: "help.sectionImport", bodyKey: "help.bodyImport" },
     { id: "ai-generate", titleKey: "help.sectionAiGenerate", bodyKey: "help.bodyAiGenerate" },
     { id: "exams", titleKey: "help.sectionExams", bodyKey: "help.bodyExams" },

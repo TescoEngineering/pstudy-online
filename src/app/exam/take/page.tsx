@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useTranslation } from "@/lib/i18n";
@@ -27,11 +27,56 @@ type ApiQuestion = {
   options?: string[];
 };
 
+function requestExamFullscreen(el: HTMLElement | null) {
+  if (!el || typeof document === "undefined") return;
+  const doc = document as Document & {
+    fullscreenElement?: Element | null;
+    webkitFullscreenElement?: Element | null;
+  };
+  const anyEl = el as HTMLElement & {
+    requestFullscreen?: () => Promise<void>;
+    webkitRequestFullscreen?: () => void;
+  };
+  if (doc.fullscreenElement ?? doc.webkitFullscreenElement) return;
+  const req = anyEl.requestFullscreen ?? anyEl.webkitRequestFullscreen?.bind(anyEl);
+  if (!req) return;
+  const p = req.call(anyEl) as void | Promise<void>;
+  if (p && typeof (p as Promise<void>).catch === "function") {
+    (p as Promise<void>).catch(() => {});
+  }
+}
+
+function exitExamFullscreen() {
+  if (typeof document === "undefined") return;
+  const doc = document as Document & {
+    exitFullscreen?: () => Promise<void>;
+    webkitExitFullscreen?: () => void;
+  };
+  if (doc.exitFullscreen) {
+    void doc.exitFullscreen().catch(() => {});
+    return;
+  }
+  doc.webkitExitFullscreen?.();
+}
+
+/** Strict Mode can unmount/remount; a module timer lets the new mount cancel a spurious abandon. */
+let examTakeAbandonTimer: ReturnType<typeof setTimeout> | null = null;
+
 function ExamTakeInner() {
   const { t } = useTranslation();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
   const storageKey = useMemo(() => (token ? `pstudy-exam-${token}` : ""), [token]);
+  const examLayoutRef = useRef<HTMLDivElement>(null);
+  const sessionRef = useRef({
+    token: "" as string | null,
+    started: false,
+    attempt: null as ApiAttempt | null,
+    answers: [] as Array<{ answer: string }>,
+    questionsLength: 0,
+    submitting: false,
+    hasResult: false,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [deckTitle, setDeckTitle] = useState("");
@@ -54,6 +99,65 @@ function ExamTakeInner() {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const current = questions[index];
+
+  useEffect(() => {
+    sessionRef.current = {
+      token,
+      started,
+      attempt,
+      answers,
+      questionsLength: questions.length,
+      submitting,
+      hasResult: result != null,
+    };
+  });
+
+  useEffect(() => {
+    if (examTakeAbandonTimer) {
+      clearTimeout(examTakeAbandonTimer);
+      examTakeAbandonTimer = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      examTakeAbandonTimer = setTimeout(() => {
+        examTakeAbandonTimer = null;
+        const s = sessionRef.current;
+        const key = s.token ? `pstudy-exam-${s.token}` : "";
+        if (
+          !s.token ||
+          !s.started ||
+          !s.attempt ||
+          s.attempt.status !== "in_progress" ||
+          s.submitting ||
+          s.hasResult ||
+          s.questionsLength === 0
+        ) {
+          return;
+        }
+        const body = JSON.stringify({
+          token: s.token,
+          action: "submit",
+          answers: s.answers,
+          currentIndex: s.questionsLength,
+        });
+        void fetch("/api/exam/take", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: true,
+        });
+        if (key) {
+          try {
+            localStorage.removeItem(key);
+          } catch {
+            /* ignore */
+          }
+        }
+      }, 80);
+    };
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -127,6 +231,41 @@ function ExamTakeInner() {
     return Math.max(0, Math.floor((new Date(attempt.expiresAt).getTime() - nowMs) / 1000));
   }, [attempt, durationMinutes, nowMs]);
 
+  const submitExamNow = useCallback(
+    async (opts?: { skipConfirm?: boolean }) => {
+      const skipConfirm = opts?.skipConfirm ?? false;
+      if (!token || !attempt || submitting) return;
+      if (!skipConfirm) {
+        if (!confirm("Submit exam? You won't be able to change answers afterwards.")) return;
+      }
+      setSubmitting(true);
+      try {
+        const res = await fetch("/api/exam/take", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token,
+            action: "submit",
+            answers,
+            currentIndex: questions.length,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Submit failed");
+        setAttempt(data.attempt);
+        setResult(data.result);
+        setStarted(false);
+        exitExamFullscreen();
+        if (storageKey) localStorage.removeItem(storageKey);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t("common.somethingWentWrong"));
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [token, attempt, submitting, answers, questions.length, storageKey, t]
+  );
+
   useEffect(() => {
     if (!attempt || attempt.status !== "in_progress") return;
     function beforeUnloadHandler(e: BeforeUnloadEvent) {
@@ -141,14 +280,22 @@ function ExamTakeInner() {
       const left = Math.floor((new Date(attempt.expiresAt).getTime() - current) / 1000);
       if (left <= 0) {
         clearInterval(timer);
-        void handleSubmit();
+        void submitExamNow({ skipConfirm: true });
       }
     }, 1000);
     return () => {
       window.removeEventListener("beforeunload", beforeUnloadHandler);
       clearInterval(timer);
     };
-  }, [attempt]);
+  }, [attempt, submitExamNow]);
+
+  useEffect(() => {
+    if (!started || attempt?.status !== "in_progress") {
+      exitExamFullscreen();
+      return;
+    }
+    requestExamFullscreen(examLayoutRef.current);
+  }, [started, attempt?.status]);
 
   async function startExam() {
     if (!token) return;
@@ -173,6 +320,7 @@ function ExamTakeInner() {
           : blank;
       setAnswers(localAnswers);
       setIndex(typeof local?.index === "number" ? local.index : 0);
+      requestAnimationFrame(() => requestExamFullscreen(examLayoutRef.current));
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.somethingWentWrong"));
     }
@@ -199,35 +347,11 @@ function ExamTakeInner() {
   }
 
   async function handleSubmit() {
-    if (!token || !attempt || submitting) return;
-    if (!confirm("Submit exam? You won't be able to change answers afterwards.")) return;
-    setSubmitting(true);
-    try {
-      const res = await fetch("/api/exam/take", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token,
-          action: "submit",
-          answers,
-          currentIndex: questions.length,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Submit failed");
-      setAttempt(data.attempt);
-      setResult(data.result);
-      setStarted(false);
-      if (storageKey) localStorage.removeItem(storageKey);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("common.somethingWentWrong"));
-    } finally {
-      setSubmitting(false);
-    }
+    await submitExamNow({ skipConfirm: false });
   }
 
   return (
-    <div className="min-h-screen bg-stone-50">
+    <div ref={examLayoutRef} className="min-h-screen bg-stone-50">
       <header className="border-b border-stone-200 bg-white">
         <div className="mx-auto flex max-w-lg flex-wrap items-center justify-between gap-3 px-4 py-4">
           <Logo size="sm" withText />

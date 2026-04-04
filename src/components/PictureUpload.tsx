@@ -11,15 +11,17 @@ type PictureUploadProps = {
   value: string;
   onChange: (url: string) => void;
   className?: string;
+  readOnly?: boolean;
 };
 
-export function PictureUpload({ value, onChange, className = "" }: PictureUploadProps) {
+export function PictureUpload({ value, onChange, className = "", readOnly = false }: PictureUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const toast = useToast();
   const { t } = useTranslation();
 
   async function uploadFile(file: File) {
+    if (readOnly) return;
     if (!file.type.startsWith("image/")) {
       toast.error(t("common.selectImageFile"));
       return;
@@ -86,6 +88,21 @@ export function PictureUpload({ value, onChange, className = "" }: PictureUpload
       ? "border-pstudy-primary bg-teal-50/50 text-pstudy-primary"
       : "border-stone-300 bg-stone-50 text-stone-500 hover:border-pstudy-primary hover:bg-teal-50/30 hover:text-pstudy-primary"
   }`;
+
+  if (readOnly) {
+    return (
+      <div className={`flex items-center gap-2 ${className}`}>
+        {value ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={value} alt="" className="h-16 w-16 rounded object-cover ring-1 ring-stone-200" />
+        ) : (
+          <span className="flex h-16 w-16 items-center justify-center rounded border border-stone-100 bg-stone-50 text-xs text-stone-400">
+            —
+          </span>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>

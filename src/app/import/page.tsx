@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "@/lib/i18n";
 import { Logo } from "@/components/Logo";
 import { HelpNavLink } from "@/components/HelpNavLink";
+import { ContextHint } from "@/components/ContextHint";
 import { formatPStudyRowsAsTxt, parsePStudyTxt } from "@/lib/txt-import";
 import {
   DECK_GENERATION_LANGUAGE_CODES,
@@ -365,10 +366,14 @@ export default function ImportPage() {
 
       <main className="mx-auto max-w-4xl space-y-12 px-4 py-8">
         <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
-          <h1 className="mb-2 text-2xl font-bold text-stone-900">{t("import.title")}</h1>
-          <p className="mb-6 text-sm text-stone-600">
-            {t("import.dropHint")} {t("import.pasteNote")}
-          </p>
+          <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <h1 className="text-2xl font-bold text-stone-900">{t("import.title")}</h1>
+            <ContextHint>
+              <p className="m-0 text-sm">
+                {t("import.dropHint")} {t("import.pasteNote")}
+              </p>
+            </ContextHint>
+          </div>
 
           <div
             role="button"
@@ -400,8 +405,12 @@ export default function ImportPage() {
         </section>
 
         <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-2 text-2xl font-bold text-stone-900">{t("import.aiSectionTitle")}</h2>
-          <p className="mb-6 text-sm text-stone-600">{t("import.aiSectionIntro")}</p>
+          <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <h2 className="text-2xl font-bold text-stone-900">{t("import.aiSectionTitle")}</h2>
+            <ContextHint>
+              <p className="m-0 text-sm">{t("import.aiSectionIntro")}</p>
+            </ContextHint>
+          </div>
 
           <input
             ref={aiFileRef}

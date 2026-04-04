@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useTranslation } from "@/lib/i18n";
 import { Logo } from "@/components/Logo";
+import { ContextHint } from "@/components/ContextHint";
 
 export default function HomePage() {
   const { t } = useTranslation();
@@ -31,9 +32,14 @@ export default function HomePage() {
         <h1 className="mb-4 text-4xl font-bold tracking-tight text-stone-900 md:text-5xl">
           {t("home.title")}
         </h1>
-        <p className="mb-10 text-lg text-stone-600">
-          {t("home.subtitle")}
-        </p>
+        <div className="mb-10 flex justify-center">
+          <ContextHint>
+            <div className="space-y-3">
+              <p className="m-0 text-base text-stone-700">{t("home.subtitle")}</p>
+              <p className="m-0 text-sm text-stone-600">{t("home.trialPricingLine")}</p>
+            </div>
+          </ContextHint>
+        </div>
         <div className="flex flex-wrap justify-center gap-4">
           <Link
             href="/login"
@@ -48,9 +54,6 @@ export default function HomePage() {
             {t("home.logIn")}
           </Link>
         </div>
-        <p className="mx-auto mt-6 max-w-xl text-sm text-stone-500">
-          {t("home.trialPricingLine")}
-        </p>
 
         <section className="mt-20 text-left">
           <h2 className="mb-6 text-2xl font-semibold text-stone-800">

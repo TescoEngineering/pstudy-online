@@ -17,6 +17,7 @@ import {
 } from "@/lib/exam-validation";
 import { Logo } from "@/components/Logo";
 import { HelpNavLink } from "@/components/HelpNavLink";
+import { ContextHint } from "@/components/ContextHint";
 import { useToast } from "@/components/Toast";
 import { toError } from "@/lib/supabase/error-utils";
 
@@ -145,8 +146,12 @@ function NewExamForm() {
       </header>
 
       <main className="mx-auto max-w-2xl px-4 py-8">
-        <h1 className="mb-2 text-2xl font-bold text-stone-900">{t("exam.newExam")}</h1>
-        <p className="mb-6 text-stone-600">{t("exam.subtitle")}</p>
+        <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <h1 className="text-2xl font-bold text-stone-900">{t("exam.newExam")}</h1>
+          <ContextHint>
+            <p className="m-0">{t("exam.subtitle")}</p>
+          </ContextHint>
+        </div>
 
         {decks.length === 0 ? (
           <div className="card text-stone-600">
@@ -235,11 +240,16 @@ function NewExamForm() {
             )}
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-stone-700">
-                {t("exam.examineeEmails")}
-              </label>
-              <p className="mb-2 text-sm text-stone-500">{t("exam.emailsHint")}</p>
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <label htmlFor="exam-emails" className="text-sm font-medium text-stone-700">
+                  {t("exam.examineeEmails")}
+                </label>
+                <ContextHint>
+                  <p className="m-0 text-sm">{t("exam.emailsHint")}</p>
+                </ContextHint>
+              </div>
               <textarea
+                id="exam-emails"
                 value={emails}
                 onChange={(e) => setEmails(e.target.value)}
                 rows={6}

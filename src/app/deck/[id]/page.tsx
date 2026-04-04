@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 
 const DECK_COLUMN_FILTERS_KEY = "pstudy-deck-column-filters";
 
@@ -44,14 +44,37 @@ import Link from "next/link";
 import { Deck, PStudyItem } from "@/types/pstudy";
 import { useTranslation } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/client";
-import { fetchDeck, saveDeckWithItems } from "@/lib/supabase/decks";
+import {
+  DECK_CHECKED_READONLY,
+  duplicateOwnedDeck,
+  fetchDeck,
+  saveDeckWithItems,
+} from "@/lib/supabase/decks";
 import { ExpandableField } from "@/components/ExpandableField";
 import { PictureUpload } from "@/components/PictureUpload";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Logo } from "@/components/Logo";
 import { HelpNavLink } from "@/components/HelpNavLink";
+import { ContextHint } from "@/components/ContextHint";
 import { useToast } from "@/components/Toast";
 import { FIELDS_OF_INTEREST, getTopicsForField } from "@/lib/deck-attributes";
+import {
+  DECK_CONTENT_LANGUAGE_CODES,
+  deckContentLanguagesClassificationComplete,
+  parseDeckContentLanguages,
+  serializeDeckContentLanguages,
+  type DeckContentLanguageCode,
+} from "@/lib/deck-content-language";
+
+function isClassificationComplete(
+  d: Pick<Deck, "fieldOfInterest" | "topic" | "contentLanguage">
+): boolean {
+  return Boolean(
+    d.fieldOfInterest?.trim() &&
+      d.topic?.trim() &&
+      deckContentLanguagesClassificationComplete(d.contentLanguage)
+  );
+}
 
 export default function DeckEditorPage() {
   const params = useParams();
@@ -71,6 +94,56 @@ export default function DeckEditorPage() {
   const prevItemCountRef = useRef(-1);
   const [columnFilters, setColumnFilters] = useState<DeckColumnFilters>(defaultColumnFilters);
   const skipNextColumnSaveRef = useRef(true);
+  const [wantsShare, setWantsShare] = useState(false);
+  const wantsShareRef = useRef(false);
+  const shareUiInitializedForDeckId = useRef<string | null>(null);
+  const [communityShareOpen, setCommunityShareOpen] = useState(false);
+  const [columnMenuOpen, setColumnMenuOpen] = useState(false);
+  const columnMenuRef = useRef<HTMLDivElement>(null);
+  const [duplicatingDeck, setDuplicatingDeck] = useState(false);
+
+  const deckContentLangCodes = useMemo(
+    () => parseDeckContentLanguages(deck?.contentLanguage),
+    [deck?.contentLanguage]
+  );
+  const deckFirstContentLang = deckContentLangCodes[0] ?? "";
+  const deckSecondContentLang = deckContentLangCodes[1] ?? "";
+
+  const columnFilterSummary = useMemo(() => {
+    const n =
+      (columnFilters.mc ? 1 : 0) +
+      (columnFilters.keywords ? 1 : 0) +
+      (columnFilters.instruction ? 1 : 0);
+    if (n === 0) return t("deck.columnFiltersSummaryNone");
+    if (n === 3) return t("deck.columnFiltersSummaryAll");
+    const parts: string[] = [];
+    if (columnFilters.mc) parts.push(t("deck.showMcColumn"));
+    if (columnFilters.keywords) parts.push(t("deck.showKeywordsColumn"));
+    if (columnFilters.instruction) parts.push(t("deck.showInstructionColumn"));
+    return parts.join(", ");
+  }, [columnFilters, t]);
+
+  useEffect(() => {
+    wantsShareRef.current = wantsShare;
+  }, [wantsShare]);
+
+  useEffect(() => {
+    if (!columnMenuOpen) return;
+    function onDocDown(e: MouseEvent) {
+      if (columnMenuRef.current && !columnMenuRef.current.contains(e.target as Node)) {
+        setColumnMenuOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setColumnMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDocDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [columnMenuOpen]);
 
   useEffect(() => {
     skipNextColumnSaveRef.current = true;
@@ -124,14 +197,29 @@ export default function DeckEditorPage() {
     load();
   }, [id, router]);
 
+  useEffect(() => {
+    if (!deck) return;
+    if (shareUiInitializedForDeckId.current !== deck.id) {
+      shareUiInitializedForDeckId.current = deck.id;
+      const pub = deck.isPublic ?? false;
+      setWantsShare(pub);
+      wantsShareRef.current = pub;
+    }
+  }, [deck]);
+
   const persistDeck = useCallback(
     async (updated: Deck) => {
       if (!updated) return;
+      if (updated.qualityStatus === "checked") return;
       setSaving(true);
       try {
         await saveDeckWithItems(updated);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : t("common.failedToSave"));
+        if (err instanceof Error && err.message === DECK_CHECKED_READONLY) {
+          toast.error(t("deck.checkedCannotSave"));
+        } else {
+          toast.error(err instanceof Error ? err.message : t("common.failedToSave"));
+        }
       } finally {
         setSaving(false);
       }
@@ -140,31 +228,55 @@ export default function DeckEditorPage() {
   );
 
   function updateDeckLocal(updates: Partial<Deck>) {
-    if (!deck) return;
-    const next = {
+    if (!deck || deck.qualityStatus === "checked") return;
+    const merged = {
       ...deck,
       ...updates,
       updatedAt: new Date().toISOString(),
     };
+    const next: Deck = {
+      ...merged,
+      isPublic: Boolean(wantsShareRef.current && isClassificationComplete(merged)),
+    };
     setDeck(next);
-    persistDeck(next);
+    void persistDeck(next);
+  }
+
+  function handleShareToggle(checked: boolean) {
+    if (!deck || deck.qualityStatus === "checked") return;
+    setWantsShare(checked);
+    wantsShareRef.current = checked;
+    const merged = {
+      ...deck,
+      updatedAt: new Date().toISOString(),
+    };
+    const next: Deck = {
+      ...merged,
+      isPublic: Boolean(checked && isClassificationComplete(merged)),
+    };
+    setDeck(next);
+    void persistDeck(next);
+    if (checked && !isClassificationComplete(merged)) {
+      toast.toast(t("deck.shareFillClassification"));
+    }
   }
 
   function updateTitleLocal(newTitle: string) {
+    if (deck?.qualityStatus === "checked") return;
     setTitle(newTitle);
     if (!deck) return;
     updateDeckLocal({ title: newTitle });
   }
 
   function updateItem(index: number, item: PStudyItem) {
-    if (!deck) return;
+    if (!deck || deck.qualityStatus === "checked") return;
     const items = [...deck.items];
     items[index] = item;
     updateDeckLocal({ items });
   }
 
   function addItem() {
-    if (!deck) return;
+    if (!deck || deck.qualityStatus === "checked") return;
     const newItem: PStudyItem = {
       id: crypto.randomUUID(),
       description: "",
@@ -181,19 +293,19 @@ export default function DeckEditorPage() {
   }
 
   function removeItem(index: number) {
-    if (!deck) return;
+    if (!deck || deck.qualityStatus === "checked") return;
     setRemoveItemIndex(index);
   }
 
   function confirmRemoveItem() {
-    if (!deck || removeItemIndex === null) return;
+    if (!deck || removeItemIndex === null || deck.qualityStatus === "checked") return;
     const items = deck.items.filter((_, i) => i !== removeItemIndex);
     updateDeckLocal({ items });
     setRemoveItemIndex(null);
   }
 
   function fillInstructionForAll(instructionText: string) {
-    if (!deck || deck.items.length === 0) return;
+    if (!deck || deck.items.length === 0 || deck.qualityStatus === "checked") return;
     const v = instructionText.trim();
     const items = deck.items.map((item) => ({
       ...item,
@@ -231,6 +343,19 @@ export default function DeckEditorPage() {
     }
   }
 
+  async function handleDuplicateForEdit() {
+    if (!deck || duplicatingDeck) return;
+    setDuplicatingDeck(true);
+    try {
+      const d = await duplicateOwnedDeck(deck.id);
+      router.push(`/deck/${d.id}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("common.somethingWentWrong"));
+    } finally {
+      setDuplicatingDeck(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-50 px-4">
@@ -254,6 +379,8 @@ export default function DeckEditorPage() {
     );
   }
 
+  const deckLocked = deck.qualityStatus === "checked";
+
   return (
     <div className="min-h-screen bg-stone-50">
       <header className="border-b border-stone-200 bg-white">
@@ -270,90 +397,304 @@ export default function DeckEditorPage() {
               <HelpNavLink />
             </nav>
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-stone-100 pt-3">
+          <div className="space-y-3 border-t border-stone-100 pt-3">
             <input
               type="text"
               value={title}
+              readOnly={deckLocked}
               onChange={(e) => updateTitleLocal(e.target.value)}
-              className="min-w-[12rem] flex-1 rounded border border-stone-300 px-3 py-1.5 text-base font-semibold text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary sm:min-w-[16rem] sm:text-lg"
+              title={deckLocked ? t("deck.checkedCannotEditTitle") : undefined}
+              className={`w-full max-w-3xl rounded border px-3 py-1.5 text-base font-semibold focus:outline-none focus:ring-1 sm:text-lg ${
+                deckLocked
+                  ? "cursor-default border-stone-200 bg-stone-50 text-stone-800"
+                  : "border-stone-300 text-stone-900 focus:border-pstudy-primary focus:ring-pstudy-primary"
+              }`}
             />
-            <div className="flex items-center gap-2">
-              <label className="shrink-0 text-sm text-stone-600">{t("deck.field")}:</label>
-              <select
-                value={deck?.fieldOfInterest ?? ""}
-                onChange={(e) =>
-                  updateDeckLocal({
-                    fieldOfInterest: e.target.value || null,
-                    topic: null,
-                  })
-                }
-                className="max-w-[11rem] rounded border border-stone-300 px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-              >
-                <option value="">—</option>
-                {FIELDS_OF_INTEREST.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="shrink-0 text-sm text-stone-600">{t("deck.topic")}:</label>
-              <select
-                value={deck?.topic ?? ""}
-                onChange={(e) => updateDeckLocal({ topic: e.target.value || null })}
-                className="max-w-[11rem] rounded border border-stone-300 px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-              >
-                <option value="">—</option>
-                {getTopicsForField(deck?.fieldOfInterest ?? null).map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-600">
-              <input
-                type="checkbox"
-                checked={deck?.isPublic ?? false}
-                onChange={(e) => updateDeckLocal({ isPublic: e.target.checked })}
-                className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
-              />
-              {t("deck.shareWithCommunity")}
-            </label>
-            {deck?.isPublic && deck.qualityStatus === "checked" ? (
-              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
-                {t("deckReview.badgeChecked")}
-              </span>
-            ) : null}
-            {deck?.isPublic && deck.qualityStatus !== "checked" ? (
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
-                {t("deckReview.badgeDraft")}
-              </span>
-            ) : null}
-            <span
-              className={`inline-block min-w-[5rem] text-sm text-stone-500 ${saving ? "" : "invisible"}`}
-              aria-hidden={!saving}
+            {deckLocked ? (
+              <div className="w-full max-w-3xl rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-3 text-sm text-stone-800">
+                <p className="font-medium text-emerald-900">{t("deck.communitySharingSection")}</p>
+                <p className="mt-1 text-stone-700">{t("deck.checkedCommunitySectionHint")}</p>
+                {deck.isPublic ? (
+                  <dl className="mt-3 grid gap-1 text-stone-700 sm:grid-cols-[auto_1fr] sm:gap-x-4">
+                    <dt className="text-stone-500">{t("deck.field")}</dt>
+                    <dd>{deck.fieldOfInterest ?? "—"}</dd>
+                    <dt className="text-stone-500">{t("deck.topic")}</dt>
+                    <dd>{deck.topic ?? "—"}</dd>
+                    <dt className="text-stone-500">{t("deck.contentLanguage")}</dt>
+                    <dd>
+                      {deckContentLangCodes.length > 0
+                        ? deckContentLangCodes
+                            .map((code) => t(`deck.contentLang_${code}`))
+                            .join(`${t("deck.contentLanguagePairSeparator")}`)
+                        : "—"}
+                    </dd>
+                  </dl>
+                ) : null}
+              </div>
+            ) : (
+            <details
+              className="w-full max-w-3xl rounded border border-stone-200 bg-white px-3 py-2"
+              open={communityShareOpen}
+              onToggle={(e) => setCommunityShareOpen(e.currentTarget.open)}
             >
-              {t("deck.saving")}
-            </span>
+              <summary className="cursor-pointer select-none text-sm font-medium text-stone-700 outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:ring-offset-2">
+                {t("deck.communitySharingSection")}
+              </summary>
+              <div className="mt-3 space-y-3">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-600">
+                    <input
+                      type="checkbox"
+                      checked={wantsShare}
+                      onChange={(e) => handleShareToggle(e.target.checked)}
+                      className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                    />
+                    {t("deck.shareWithCommunity")}
+                  </label>
+                  {deck?.isPublic && deck.qualityStatus === "checked" ? (
+                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+                      {t("deckReview.badgeChecked")}
+                    </span>
+                  ) : null}
+                  {deck?.isPublic && deck.qualityStatus !== "checked" ? (
+                    <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
+                      {t("deckReview.badgeDraft")}
+                    </span>
+                  ) : null}
+                  <span
+                    className={`inline-block min-w-[5rem] text-sm text-stone-500 ${saving ? "" : "invisible"}`}
+                    aria-hidden={!saving}
+                  >
+                    {t("deck.saving")}
+                  </span>
+                </div>
+                {wantsShare ? (
+                  <div className="space-y-2">
+                    <fieldset className="rounded-xl border-2 border-teal-200/70 bg-teal-50/30 px-3 py-3">
+                      <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-teal-900">
+                        {t("deck.toolbarClassification")}
+                      </legend>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                        <div className="flex items-center gap-2">
+                          <label className="shrink-0 text-sm text-stone-600" htmlFor="deck-field">
+                            {t("deck.field")}:
+                          </label>
+                          <select
+                            id="deck-field"
+                            value={deck?.fieldOfInterest ?? ""}
+                            onChange={(e) =>
+                              updateDeckLocal({
+                                fieldOfInterest: e.target.value || null,
+                                topic: null,
+                              })
+                            }
+                            aria-invalid={!deck?.fieldOfInterest?.trim()}
+                            className="w-[11rem] max-w-[min(11rem,100vw-6rem)] rounded border border-stone-300 px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                          >
+                            <option value="">—</option>
+                            {FIELDS_OF_INTEREST.map((f) => (
+                              <option key={f} value={f}>
+                                {f}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="shrink-0 text-sm text-stone-600" htmlFor="deck-topic">
+                            {t("deck.topic")}:
+                          </label>
+                          <select
+                            id="deck-topic"
+                            value={deck?.topic ?? ""}
+                            onChange={(e) => updateDeckLocal({ topic: e.target.value || null })}
+                            aria-invalid={!deck?.topic?.trim()}
+                            className="w-[11rem] max-w-[min(11rem,100vw-6rem)] rounded border border-stone-300 px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                          >
+                            <option value="">—</option>
+                            {getTopicsForField(deck?.fieldOfInterest ?? null).map((top) => (
+                              <option key={top} value={top}>
+                                {top}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                          <div className="flex items-center gap-2">
+                            <label className="shrink-0 text-sm text-stone-600" htmlFor="deck-content-lang-1">
+                              {t("deck.contentLanguage")}:
+                            </label>
+                            <select
+                              id="deck-content-lang-1"
+                              data-testid="deck-language-select"
+                              value={deckFirstContentLang}
+                              title={t("deck.contentLanguageHint")}
+                              aria-label={t("deck.contentLanguage")}
+                              aria-invalid={!deckContentLanguagesClassificationComplete(deck?.contentLanguage ?? null)}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                const nextFirst =
+                                  raw === "" ? null : (raw as DeckContentLanguageCode);
+                                const prev = parseDeckContentLanguages(deck?.contentLanguage ?? null);
+                                const oldSecond = prev[1] ?? null;
+                                const second =
+                                  nextFirst && oldSecond && oldSecond !== nextFirst
+                                    ? oldSecond
+                                    : null;
+                                updateDeckLocal({
+                                  contentLanguage: serializeDeckContentLanguages([nextFirst, second]),
+                                });
+                              }}
+                              className="w-[11rem] max-w-[min(11rem,100vw-6rem)] rounded border border-stone-300 px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                            >
+                              <option value="">—</option>
+                              {DECK_CONTENT_LANGUAGE_CODES.map((code) => (
+                                <option key={code} value={code}>
+                                  {t(`deck.contentLang_${code}`)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <label className="shrink-0 text-sm text-stone-600" htmlFor="deck-content-lang-2">
+                              {t("community.secondLanguageFilter")}:
+                            </label>
+                            <select
+                              id="deck-content-lang-2"
+                              data-testid="deck-language-select-second"
+                              value={deckSecondContentLang}
+                              disabled={!deckFirstContentLang}
+                              title={t("deck.contentLanguageSecondHint")}
+                              aria-label={t("community.secondLanguageFilter")}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                const first = deckFirstContentLang
+                                  ? (deckFirstContentLang as DeckContentLanguageCode)
+                                  : null;
+                                const second =
+                                  raw === "" || raw === deckFirstContentLang
+                                    ? null
+                                    : (raw as DeckContentLanguageCode);
+                                updateDeckLocal({
+                                  contentLanguage: serializeDeckContentLanguages([first, second]),
+                                });
+                              }}
+                              className="w-[11rem] max-w-[min(11rem,100vw-6rem)] rounded border border-stone-300 px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400"
+                            >
+                              <option value="">{t("deck.contentLanguageSecondNone")}</option>
+                              {DECK_CONTENT_LANGUAGE_CODES.filter((code) => code !== deckFirstContentLang).map(
+                                (code) => (
+                                  <option key={code} value={code}>
+                                    {t(`deck.contentLang_${code}`)}
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </fieldset>
+                    {!isClassificationComplete(deck) ? (
+                      <p className="text-sm text-amber-800">{t("deck.shareIncompleteHint")}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </details>
+            )}
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-6">
+        {deckLocked ? (
+          <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-stone-800">
+            <p className="font-semibold text-emerald-950">{t("deck.checkedReadOnlyTitle")}</p>
+            <p className="mt-1 text-stone-700">{t("deck.checkedReadOnlyBody")}</p>
+            <button
+              type="button"
+              className="btn-primary mt-3 text-sm disabled:opacity-50"
+              disabled={duplicatingDeck}
+              onClick={() => void handleDuplicateForEdit()}
+            >
+              {duplicatingDeck ? t("community.copying") : t("deck.duplicateToEdit")}
+            </button>
+          </div>
+        ) : null}
         <div className="mb-4 flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-3">
           <span className="text-stone-600">{deck.items.length} {t("dashboard.items", { count: deck.items.length })}</span>
+          {!deckLocked ? (
           <button type="button" onClick={addItem} className="btn-primary text-sm">
             {t("deck.addItem")}
           </button>
+          ) : null}
           <Link href={`/exams/new?deck=${id}`} className="btn-secondary text-sm">
             {t("exam.newExam")}
           </Link>
           <Link href={`/practice/${id}`} className="btn-primary text-sm">
             {t("common.practice")}
           </Link>
+          <div className="relative" ref={columnMenuRef}>
+            <button
+              type="button"
+              data-testid="deck-column-filters-trigger"
+              aria-label={t("deck.columnFiltersLegend")}
+              aria-expanded={columnMenuOpen}
+              aria-haspopup="dialog"
+              title={t("deck.columnFiltersHint")}
+              className="flex w-[min(14rem,calc(100vw-8rem))] min-w-[10rem] items-center justify-between gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-left text-sm text-stone-900 shadow-sm hover:border-stone-400 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+              onClick={() => setColumnMenuOpen((o) => !o)}
+            >
+              <span className="min-w-0 flex-1 truncate">{columnFilterSummary}</span>
+              <span className="shrink-0 text-stone-400" aria-hidden>
+                ▾
+              </span>
+            </button>
+            {columnMenuOpen ? (
+              <div
+                className="absolute left-0 z-50 mt-1 w-max min-w-full max-w-[18rem] rounded-lg border border-stone-200 bg-white py-2 shadow-lg"
+                role="dialog"
+                aria-label={t("deck.columnFiltersLegend")}
+              >
+                <div className="px-2">
+                  <p className="mb-2 px-2 text-xs text-stone-500">{t("deck.columnFiltersHint")}</p>
+                  <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-stone-700 hover:bg-stone-50">
+                    <input
+                      type="checkbox"
+                      checked={columnFilters.mc}
+                      onChange={(e) =>
+                        setColumnFilters((f) => ({ ...f, mc: e.target.checked }))
+                      }
+                      className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                    />
+                    {t("deck.showMcColumn")}
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-stone-700 hover:bg-stone-50">
+                    <input
+                      type="checkbox"
+                      checked={columnFilters.keywords}
+                      onChange={(e) =>
+                        setColumnFilters((f) => ({ ...f, keywords: e.target.checked }))
+                      }
+                      className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                    />
+                    {t("deck.showKeywordsColumn")}
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-stone-700 hover:bg-stone-50">
+                    <input
+                      type="checkbox"
+                      checked={columnFilters.instruction}
+                      onChange={(e) =>
+                        setColumnFilters((f) => ({ ...f, instruction: e.target.checked }))
+                      }
+                      className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                    />
+                    {t("deck.showInstructionColumn")}
+                  </label>
+                </div>
+              </div>
+            ) : null}
+          </div>
           {deck?.isPublic && deck.qualityStatus !== "checked" ? (
             <button
               type="button"
@@ -364,46 +705,6 @@ export default function DeckEditorPage() {
             </button>
           ) : null}
           </div>
-          <fieldset className="rounded-lg border border-stone-200 bg-stone-50/80 px-3 py-2">
-            <legend className="px-1 text-xs font-medium text-stone-600">
-              {t("deck.columnFiltersHint")}
-            </legend>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-700">
-                <input
-                  type="checkbox"
-                  checked={columnFilters.mc}
-                  onChange={(e) =>
-                    setColumnFilters((f) => ({ ...f, mc: e.target.checked }))
-                  }
-                  className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
-                />
-                {t("deck.showMcColumn")}
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-700">
-                <input
-                  type="checkbox"
-                  checked={columnFilters.keywords}
-                  onChange={(e) =>
-                    setColumnFilters((f) => ({ ...f, keywords: e.target.checked }))
-                  }
-                  className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
-                />
-                {t("deck.showKeywordsColumn")}
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-700">
-                <input
-                  type="checkbox"
-                  checked={columnFilters.instruction}
-                  onChange={(e) =>
-                    setColumnFilters((f) => ({ ...f, instruction: e.target.checked }))
-                  }
-                  className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
-                />
-                {t("deck.showInstructionColumn")}
-              </label>
-            </div>
-          </fieldset>
         </div>
 
         <div className="overflow-x-auto">
@@ -436,6 +737,7 @@ export default function DeckEditorPage() {
                   <td className="p-2 text-stone-500">{i + 1}</td>
                   <td className="p-2">
                     <ExpandableField
+                      readOnly={deckLocked}
                       value={item.description}
                       onChange={(v) =>
                         updateItem(i, { ...item, description: v })
@@ -447,6 +749,7 @@ export default function DeckEditorPage() {
                   </td>
                   <td className="p-2">
                     <ExpandableField
+                      readOnly={deckLocked}
                       value={item.explanation}
                       onChange={(v) =>
                         updateItem(i, { ...item, explanation: v })
@@ -459,7 +762,7 @@ export default function DeckEditorPage() {
                         onKeywordsChange: (next) =>
                           updateItem(i, { ...item, keywords: next }),
                       }}
-                      dictation={{}}
+                      dictation={deckLocked ? undefined : {}}
                     />
                   </td>
                   {columnFilters.mc ? (
@@ -468,6 +771,7 @@ export default function DeckEditorPage() {
                         {[1, 2, 3, 4].map((n) => (
                           <ExpandableField
                             key={n}
+                            readOnly={deckLocked}
                             value={
                               item[
                                 `multiplechoice${n}` as keyof PStudyItem
@@ -492,12 +796,17 @@ export default function DeckEditorPage() {
                     <td className="p-2">
                       <input
                         type="text"
+                        readOnly={deckLocked}
                         value={item.keywords ?? ""}
                         onChange={(e) =>
                           updateItem(i, { ...item, keywords: e.target.value })
                         }
                         placeholder={t("deck.keywordsPlaceholder")}
-                        className="w-full min-w-[6rem] rounded border border-stone-300 px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                        className={`w-full min-w-[6rem] rounded border px-2 py-1 text-sm ${
+                          deckLocked
+                            ? "cursor-default border-stone-100 bg-stone-50 text-stone-700"
+                            : "border-stone-300 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                        }`}
                         title={t("deck.keywordsHint")}
                       />
                     </td>
@@ -505,6 +814,7 @@ export default function DeckEditorPage() {
                   {columnFilters.instruction ? (
                     <td className="p-2">
                       <ExpandableField
+                        readOnly={deckLocked}
                         value={item.instruction}
                         onChange={(v) =>
                           updateItem(i, { ...item, instruction: v })
@@ -512,13 +822,18 @@ export default function DeckEditorPage() {
                         placeholder={t("deck.instructionPlaceholder")}
                         rows={3}
                         compactClassName="w-full min-w-[6rem]"
-                        onApplyToAll={(v) => fillInstructionForAll(v)}
+                        onApplyToAll={
+                          deckLocked
+                            ? undefined
+                            : (v) => fillInstructionForAll(v)
+                        }
                         applyToAllLabel={t("deck.fillThisInstructionForAll")}
                       />
                     </td>
                   ) : null}
                   <td className="p-2">
                     <PictureUpload
+                      readOnly={deckLocked}
                       value={item.picture_url}
                       onChange={(url) =>
                         updateItem(i, { ...item, picture_url: url })
@@ -526,12 +841,17 @@ export default function DeckEditorPage() {
                     />
                   </td>
                   <td className="p-2">
-                    <button
-                      onClick={() => removeItem(i)}
-                      className="text-red-600 hover:underline"
-                    >
-                      {t("common.delete")}
-                    </button>
+                    {!deckLocked ? (
+                      <button
+                        type="button"
+                        onClick={() => removeItem(i)}
+                        className="text-red-600 hover:underline"
+                      >
+                        {t("common.delete")}
+                      </button>
+                    ) : (
+                      <span className="text-stone-300">—</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -563,11 +883,13 @@ export default function DeckEditorPage() {
           >
             <h2
               id="review-invite-dialog-title"
-              className="text-lg font-semibold text-stone-900"
+              className="flex flex-wrap items-center gap-2 text-lg font-semibold text-stone-900"
             >
               {t("deckReview.requestTitle")}
+              <ContextHint>
+                <p className="m-0 text-sm">{t("deckReview.requestHint")}</p>
+              </ContextHint>
             </h2>
-            <p className="mt-2 text-sm text-stone-600">{t("deckReview.requestHint")}</p>
             <div className="mt-4">
               <label htmlFor="review-email" className="mb-1 block text-xs font-medium text-stone-600">
                 {t("deckReview.reviewerEmail")}

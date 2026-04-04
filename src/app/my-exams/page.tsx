@@ -7,6 +7,7 @@ import { useTranslation } from "@/lib/i18n";
 import { Logo } from "@/components/Logo";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/components/Toast";
+import { ContextHint } from "@/components/ContextHint";
 import { useRouter } from "next/navigation";
 
 type InboxItem = {
@@ -135,9 +136,11 @@ export default function MyExamsPage() {
       </header>
 
       <main className="mx-auto max-w-4xl px-4 py-8">
-        <div className="mb-6">
+        <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1">
           <h1 className="text-2xl font-bold text-stone-900">{t("exam.myAssignedExams")}</h1>
-          <p className="mt-2 text-stone-600">{t("exam.myAssignedExamsHint")}</p>
+          <ContextHint>
+            <p className="m-0">{t("exam.myAssignedExamsHint")}</p>
+          </ContextHint>
         </div>
 
         {loading ? (

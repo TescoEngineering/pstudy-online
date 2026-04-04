@@ -31,6 +31,11 @@ export interface Deck {
    * Only applies meaningfully when the deck is shared with the community.
    */
   qualityStatus?: "draft" | "checked";
+  /**
+   * Card languages for community filters: one code or two comma-separated (e.g. en / en,de), max two.
+   * Codes: en, de, es, fr, it, nl, other. Null if unset.
+   */
+  contentLanguage?: string | null;
 }
 
 export type PracticeMode = "straight" | "multiple-choice";

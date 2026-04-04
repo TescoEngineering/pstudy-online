@@ -12,6 +12,7 @@ import {
 } from "@/lib/supabase/exams";
 import { Logo } from "@/components/Logo";
 import { HelpNavLink } from "@/components/HelpNavLink";
+import { ContextHint } from "@/components/ContextHint";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/components/Toast";
 
@@ -98,8 +99,12 @@ export default function ExamsListPage() {
       </header>
 
       <main className="mx-auto max-w-4xl px-4 py-8">
-        <h1 className="mb-2 text-2xl font-bold text-stone-900">{t("exam.title")}</h1>
-        <p className="mb-6 text-stone-600">{t("exam.subtitle")}</p>
+        <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <h1 className="text-2xl font-bold text-stone-900">{t("exam.title")}</h1>
+          <ContextHint>
+            <p className="m-0">{t("exam.subtitle")}</p>
+          </ContextHint>
+        </div>
 
         {error && (
           <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
