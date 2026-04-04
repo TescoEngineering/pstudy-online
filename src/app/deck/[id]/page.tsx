@@ -65,6 +65,7 @@ import {
   serializeDeckContentLanguages,
   type DeckContentLanguageCode,
 } from "@/lib/deck-content-language";
+import { deckIsReadOnlyPublication } from "@/lib/deck-publication";
 
 function isClassificationComplete(
   d: Pick<Deck, "fieldOfInterest" | "topic" | "contentLanguage">
@@ -101,6 +102,7 @@ export default function DeckEditorPage() {
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const columnMenuRef = useRef<HTMLDivElement>(null);
   const [duplicatingDeck, setDuplicatingDeck] = useState(false);
+  const [resubmittingReview, setResubmittingReview] = useState(false);
 
   const deckContentLangCodes = useMemo(
     () => parseDeckContentLanguages(deck?.contentLanguage),
@@ -210,7 +212,11 @@ export default function DeckEditorPage() {
   const persistDeck = useCallback(
     async (updated: Deck) => {
       if (!updated) return;
-      if (updated.qualityStatus === "checked") return;
+        if (
+          updated.publicationStatus === "checked" ||
+          updated.publicationStatus === "superseded"
+        )
+          return;
       setSaving(true);
       try {
         await saveDeckWithItems(updated);
@@ -228,7 +234,7 @@ export default function DeckEditorPage() {
   );
 
   function updateDeckLocal(updates: Partial<Deck>) {
-    if (!deck || deck.qualityStatus === "checked") return;
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
     const merged = {
       ...deck,
       ...updates,
@@ -243,7 +249,7 @@ export default function DeckEditorPage() {
   }
 
   function handleShareToggle(checked: boolean) {
-    if (!deck || deck.qualityStatus === "checked") return;
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
     setWantsShare(checked);
     wantsShareRef.current = checked;
     const merged = {
@@ -262,21 +268,21 @@ export default function DeckEditorPage() {
   }
 
   function updateTitleLocal(newTitle: string) {
-    if (deck?.qualityStatus === "checked") return;
+    if (deck && deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
     setTitle(newTitle);
     if (!deck) return;
     updateDeckLocal({ title: newTitle });
   }
 
   function updateItem(index: number, item: PStudyItem) {
-    if (!deck || deck.qualityStatus === "checked") return;
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
     const items = [...deck.items];
     items[index] = item;
     updateDeckLocal({ items });
   }
 
   function addItem() {
-    if (!deck || deck.qualityStatus === "checked") return;
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
     const newItem: PStudyItem = {
       id: crypto.randomUUID(),
       description: "",
@@ -293,19 +299,21 @@ export default function DeckEditorPage() {
   }
 
   function removeItem(index: number) {
-    if (!deck || deck.qualityStatus === "checked") return;
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
     setRemoveItemIndex(index);
   }
 
   function confirmRemoveItem() {
-    if (!deck || removeItemIndex === null || deck.qualityStatus === "checked") return;
+    if (!deck || removeItemIndex === null || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft"))
+      return;
     const items = deck.items.filter((_, i) => i !== removeItemIndex);
     updateDeckLocal({ items });
     setRemoveItemIndex(null);
   }
 
   function fillInstructionForAll(instructionText: string) {
-    if (!deck || deck.items.length === 0 || deck.qualityStatus === "checked") return;
+    if (!deck || deck.items.length === 0 || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft"))
+      return;
     const v = instructionText.trim();
     const items = deck.items.map((item) => ({
       ...item,
@@ -315,7 +323,7 @@ export default function DeckEditorPage() {
   }
 
   async function sendReviewInvite() {
-    if (!deck?.isPublic || deck.qualityStatus === "checked") return;
+    if (!deck?.isPublic || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
     const email = reviewEmail.trim();
     if (!email) {
       toast.error(t("deckReview.emailRequired"));
@@ -343,11 +351,35 @@ export default function DeckEditorPage() {
     }
   }
 
+  async function handleResubmitForReview() {
+    if (!deck?.id || resubmittingReview) return;
+    setResubmittingReview(true);
+    try {
+      const res = await fetch("/api/deck-review/resubmit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deckId: deck.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "resubmit failed");
+      setDeck((d) =>
+        d ? { ...d, reviewStatus: "resubmitted" as const } : d
+      );
+      toast.success(t("deckReview.resubmitSuccess"));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("common.somethingWentWrong"));
+    } finally {
+      setResubmittingReview(false);
+    }
+  }
+
   async function handleDuplicateForEdit() {
     if (!deck || duplicatingDeck) return;
     setDuplicatingDeck(true);
     try {
-      const d = await duplicateOwnedDeck(deck.id);
+      const d = await duplicateOwnedDeck(deck.id, {
+        publicNextRevision: deck.publicationStatus === "checked" && !!deck.isPublic,
+      });
       router.push(`/deck/${d.id}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("common.somethingWentWrong"));
@@ -379,7 +411,7 @@ export default function DeckEditorPage() {
     );
   }
 
-  const deckLocked = deck.qualityStatus === "checked";
+  const deckLocked = deck ? deckIsReadOnlyPublication(deck.publicationStatus ?? "draft") : false;
 
   return (
     <div className="min-h-screen bg-stone-50">
@@ -451,12 +483,12 @@ export default function DeckEditorPage() {
                     />
                     {t("deck.shareWithCommunity")}
                   </label>
-                  {deck?.isPublic && deck.qualityStatus === "checked" ? (
+                  {deck?.isPublic && deck.publicationStatus === "checked" ? (
                     <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
                       {t("deckReview.badgeChecked")}
                     </span>
                   ) : null}
-                  {deck?.isPublic && deck.qualityStatus !== "checked" ? (
+                  {deck?.isPublic && deck.publicationStatus === "draft" ? (
                     <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
                       {t("deckReview.badgeDraft")}
                     </span>
@@ -695,14 +727,26 @@ export default function DeckEditorPage() {
               </div>
             ) : null}
           </div>
-          {deck?.isPublic && deck.qualityStatus !== "checked" ? (
-            <button
-              type="button"
-              onClick={() => setReviewInviteOpen(true)}
-              className="btn-secondary text-sm"
-            >
-              {t("deckReview.peerReview")}
-            </button>
+          {deck?.isPublic && deck.publicationStatus === "draft" ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setReviewInviteOpen(true)}
+                className="btn-secondary text-sm"
+              >
+                {t("deckReview.peerReview")}
+              </button>
+              {deck.reviewStatus === "revise_and_resubmit" && !deckLocked ? (
+                <button
+                  type="button"
+                  disabled={resubmittingReview}
+                  onClick={() => void handleResubmitForReview()}
+                  className="btn-primary text-sm disabled:opacity-50"
+                >
+                  {resubmittingReview ? t("common.loading") : t("deckReview.resubmitForReview")}
+                </button>
+              ) : null}
+            </>
           ) : null}
           </div>
         </div>

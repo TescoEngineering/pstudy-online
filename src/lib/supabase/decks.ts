@@ -1,6 +1,11 @@
 import { createClient } from "./client";
 import { Deck, PStudyItem } from "@/types/pstudy";
 import { isDeckContentLanguageCode } from "@/lib/deck-content-language";
+import {
+  normalizePublicationStatus,
+  normalizeReviewStatus,
+  pickCommunityRepresentativeRows,
+} from "@/lib/deck-publication";
 
 export type DbDeck = {
   id: string;
@@ -11,7 +16,10 @@ export type DbDeck = {
   is_public?: boolean;
   field_of_interest?: string | null;
   topic?: string | null;
-  quality_status?: "draft" | "checked";
+  publication_status?: string | null;
+  review_status?: string | null;
+  lineage_id?: string | null;
+  revision_number?: number | null;
   content_language?: string | null;
 };
 
@@ -53,7 +61,8 @@ function dbItemToItem(db: DbItem): PStudyItem {
 }
 
 function dbDeckToDeck(db: DbDeck, items: PStudyItem[], includeOwner = false): Deck {
-  const qs = db.quality_status;
+  const pub = normalizePublicationStatus(db.publication_status);
+  const rev = normalizeReviewStatus(db.review_status);
   return {
     id: db.id,
     title: db.title,
@@ -64,7 +73,10 @@ function dbDeckToDeck(db: DbDeck, items: PStudyItem[], includeOwner = false): De
     fieldOfInterest: db.field_of_interest ?? null,
     topic: db.topic ?? null,
     contentLanguage: db.content_language ?? null,
-    ...(qs === "draft" || qs === "checked" ? { qualityStatus: qs } : { qualityStatus: "draft" as const }),
+    publicationStatus: pub,
+    reviewStatus: rev,
+    lineageId: db.lineage_id ?? db.id,
+    revisionNumber: db.revision_number ?? 1,
     ...(includeOwner && { ownerId: db.owner_id }),
   };
 }
@@ -181,8 +193,9 @@ export async function fetchPublicDecks(filters?: PublicDecksFilters): Promise<De
   if (error) throw error;
   if (!decks?.length) return [];
 
+  const reps = pickCommunityRepresentativeRows(decks as DbDeck[]);
   const result: Deck[] = [];
-  for (const d of decks) {
+  for (const d of reps) {
     const { data: items } = await supabase
       .from("items")
       .select("*")
@@ -197,8 +210,16 @@ export async function fetchPublicDecks(filters?: PublicDecksFilters): Promise<De
 /** Stable error code for UI copy; checked decks cannot be edited. */
 export const DECK_CHECKED_READONLY = "DECK_CHECKED_READONLY";
 
-/** Duplicate a deck you own (e.g. checked deck you cannot edit). New deck is private draft. */
-export async function duplicateOwnedDeck(deckId: string): Promise<Deck> {
+export type DuplicateOwnedOptions = {
+  /** When true and source is checked/superseded, new deck stays in same lineage with next revision and copies public flag from source. */
+  publicNextRevision?: boolean;
+};
+
+/** Duplicate a deck you own (e.g. checked deck you cannot edit). By default new private draft in a new lineage. */
+export async function duplicateOwnedDeck(
+  deckId: string,
+  options?: DuplicateOwnedOptions
+): Promise<Deck> {
   const supabase = createClient();
   const {
     data: { user },
@@ -207,7 +228,9 @@ export async function duplicateOwnedDeck(deckId: string): Promise<Deck> {
 
   const { data: row, error: rowErr } = await supabase
     .from("decks")
-    .select("owner_id")
+    .select(
+      "owner_id, publication_status, lineage_id, revision_number, is_public"
+    )
     .eq("id", deckId)
     .single();
   if (rowErr || !row || row.owner_id !== user.id) {
@@ -216,6 +239,13 @@ export async function duplicateOwnedDeck(deckId: string): Promise<Deck> {
 
   const sourceDeck = await fetchDeck(deckId);
   if (!sourceDeck) throw new Error("Deck not found");
+
+  const pub = normalizePublicationStatus(row.publication_status as string | null);
+  const nextRevision =
+    options?.publicNextRevision && (pub === "checked" || pub === "superseded");
+  const lineageId = nextRevision ? (row.lineage_id as string) : null;
+  const revisionNumber = nextRevision ? Number(row.revision_number ?? 1) + 1 : 1;
+  const isPublicCopy = nextRevision ? !!(row.is_public ?? false) : false;
 
   const newDeck = await createDeck(`Copy of ${sourceDeck.title}`);
   const itemsWithNewIds: PStudyItem[] = sourceDeck.items.map((it) => ({
@@ -228,10 +258,20 @@ export async function duplicateOwnedDeck(deckId: string): Promise<Deck> {
     fieldOfInterest: sourceDeck.fieldOfInterest ?? null,
     topic: sourceDeck.topic ?? null,
     contentLanguage: sourceDeck.contentLanguage ?? null,
-    isPublic: false,
+    isPublic: isPublicCopy,
   };
   await saveDeckWithItems(deckWithItems);
-  await supabase.from("decks").update({ quality_status: "draft" }).eq("id", newDeck.id);
+
+  const newLineage = nextRevision && lineageId ? lineageId : newDeck.id;
+  await supabase
+    .from("decks")
+    .update({
+      lineage_id: newLineage,
+      revision_number: revisionNumber,
+      publication_status: "draft",
+      review_status: "none",
+    })
+    .eq("id", newDeck.id);
 
   const fresh = await fetchDeck(newDeck.id);
   return fresh ?? deckWithItems;
@@ -260,8 +300,25 @@ export async function copyDeckToMine(deckId: string): Promise<Deck> {
     contentLanguage: sourceDeck.contentLanguage ?? null,
   };
   await saveDeckWithItems(deckWithItems);
-  await supabase.from("decks").update({ quality_status: "draft" }).eq("id", newDeck.id);
-  return { ...deckWithItems, qualityStatus: "draft" as const };
+  await supabase
+    .from("decks")
+    .update({
+      lineage_id: newDeck.id,
+      revision_number: 1,
+      publication_status: "draft",
+      review_status: "none",
+    })
+    .eq("id", newDeck.id);
+  const fresh = await fetchDeck(newDeck.id);
+  return (
+    fresh ?? {
+      ...deckWithItems,
+      publicationStatus: "draft" as const,
+      reviewStatus: "none" as const,
+      lineageId: newDeck.id,
+      revisionNumber: 1,
+    }
+  );
 }
 
 /** Concatenate items from several decks into one new deck. Preserves `sourceDeckIds` order; assigns new item IDs. Original decks are unchanged. Copies field/topic from the first source. */
@@ -317,7 +374,15 @@ export async function mergeDecksIntoNew(sourceDeckIdsInOrder: string[], title: s
     contentLanguage: first.contentLanguage ?? null,
   };
   await saveDeckWithItems(deckWithItems);
-  await supabase.from("decks").update({ quality_status: "draft" }).eq("id", newDeck.id);
+  await supabase
+    .from("decks")
+    .update({
+      lineage_id: newDeck.id,
+      revision_number: 1,
+      publication_status: "draft",
+      review_status: "none",
+    })
+    .eq("id", newDeck.id);
 
   const fresh = await fetchDeck(newDeck.id);
   return fresh ?? deckWithItems;
@@ -338,7 +403,19 @@ export async function createDeck(title: string = "Untitled deck"): Promise<Deck>
     .single();
 
   if (error) throw error;
-  return dbDeckToDeck(deck, [], false);
+  const id = deck.id as string;
+  const { error: uErr } = await supabase
+    .from("decks")
+    .update({
+      lineage_id: id,
+      revision_number: 1,
+      publication_status: "draft",
+      review_status: "none",
+    })
+    .eq("id", id);
+  if (uErr) throw uErr;
+  const { data: row } = await supabase.from("decks").select("*").eq("id", id).single();
+  return dbDeckToDeck((row ?? deck) as DbDeck, [], false);
 }
 
 export async function updateDeck(
@@ -378,12 +455,13 @@ export async function saveDeckWithItems(deck: Deck): Promise<void> {
 
   const { data: meta, error: metaErr } = await supabase
     .from("decks")
-    .select("owner_id, quality_status")
+    .select("owner_id, publication_status")
     .eq("id", deck.id)
     .single();
   if (metaErr || !meta) throw new Error("Deck not found");
   if (meta.owner_id !== user.id) throw new Error("Not allowed");
-  if (meta.quality_status === "checked") {
+  const ps = normalizePublicationStatus(meta.publication_status as string | null);
+  if (ps === "checked" || ps === "superseded") {
     throw new Error(DECK_CHECKED_READONLY);
   }
 
@@ -450,11 +528,12 @@ export async function addItemToDeck(deckId: string, item: PStudyItem, order: num
   if (!user) throw new Error("Not logged in");
   const { data: meta } = await supabase
     .from("decks")
-    .select("owner_id, quality_status")
+    .select("owner_id, publication_status")
     .eq("id", deckId)
     .single();
   if (!meta || meta.owner_id !== user.id) throw new Error("Not allowed");
-  if (meta.quality_status === "checked") throw new Error(DECK_CHECKED_READONLY);
+  const ps = normalizePublicationStatus(meta.publication_status as string | null);
+  if (ps === "checked" || ps === "superseded") throw new Error(DECK_CHECKED_READONLY);
 
   const { data, error } = await supabase
     .from("items")

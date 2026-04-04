@@ -305,7 +305,7 @@ export default function CommunityPage() {
                       ))}
                     </span>
                   ) : null}
-                  {deck.qualityStatus === "checked" ? (
+                  {deck.publicationStatus === "checked" ? (
                     <span className="ml-2 align-middle rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
                       {t("deckReview.badgeChecked")}
                     </span>

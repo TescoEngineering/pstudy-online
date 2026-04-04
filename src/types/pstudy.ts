@@ -27,10 +27,16 @@ export interface Deck {
   /** Specific sub-category (e.g. Europe, Middle Ages, French) */
   topic?: string | null;
   /**
-   * Community quality: draft = not yet peer-verified; checked = verified by an invited reviewer.
-   * Only applies meaningfully when the deck is shared with the community.
+   * Publication: draft (editable edition); checked (frozen, peer-verified); superseded (replaced by newer checked).
    */
-  qualityStatus?: "draft" | "checked";
+  publicationStatus?: "draft" | "checked" | "superseded";
+  /**
+   * Review workflow on current draft: none → submitted → revise_and_resubmit ↔ resubmitted until approved.
+   */
+  reviewStatus?: "none" | "submitted" | "revise_and_resubmit" | "resubmitted";
+  /** Shared id for all revisions of one deck family */
+  lineageId?: string;
+  revisionNumber?: number;
   /**
    * Card languages for community filters: one code or two comma-separated (e.g. en / en,de), max two.
    * Codes: en, de, es, fr, it, nl, other. Null if unset.

@@ -474,6 +474,14 @@
   "deckReview": {
     "badgeDraft": "Draft",
     "badgeChecked": "Checked",
+    "badgeSuperseded": "Superseded",
+    "reviewStatus_none": "Review: —",
+    "reviewStatus_submitted": "Review: submitted",
+    "reviewStatus_revise_and_resubmit": "Review: changes requested",
+    "reviewStatus_resubmitted": "Review: resubmitted",
+    "reviewStatusHint": "Publication state (draft/checked) is separate from whether a peer review is in progress.",
+    "resubmitForReview": "Resubmit for review",
+    "resubmitSuccess": "Reviewer notified. Your deck is marked as resubmitted.",
     "requestTitle": "Peer review (community quality)",
     "requestHint": "Invite another user by email to correct this shared deck. They can edit items but not add or remove rows. When they finish, the deck is marked checked and you are notified by email. Same idea as exam invitations — they must log in with the email you enter.",
     "reviewerEmail": "Reviewer email",
@@ -495,7 +503,16 @@
     "completed": "Review completed. Thank you.",
     "completeFailed": "Could not complete the review.",
     "loadFailed": "Could not load this review.",
-    "unavailable": "This review link is invalid or you need to log in with the invited email address."
+    "unavailable": "This review link is invalid or you need to log in with the invited email address.",
+    "requestChanges": "Request changes",
+    "requestChangesTitle": "Request changes from the author",
+    "requestChangesBody": "The deck stays a draft. The author can revise and use “Resubmit for review” when ready. They receive an email with your note (if you add one).",
+    "feedbackOptionalPlaceholder": "Optional: what should they fix or clarify?",
+    "confirmRequestChanges": "Send this feedback to the author now?",
+    "requestingChanges": "Sending…",
+    "requestChangesSuccess": "Feedback sent. The author has been notified.",
+    "requestChangesFailed": "Could not send feedback.",
+    "completeDisabledUntilResubmit": "The author must address your feedback and resubmit before you can mark the review complete."
   },
   "banner": {
     "underConstruction": "PSTUDY Online is under construction. Features may change."

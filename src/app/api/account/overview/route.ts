@@ -32,7 +32,7 @@ export async function GET() {
 
   const { data: deckRows, error: deckErr } = await supabase
     .from("decks")
-    .select("id, is_public, quality_status")
+    .select("id, is_public, publication_status")
     .eq("owner_id", user.id);
 
   if (deckErr) return bad(deckErr.message, 500);
@@ -49,7 +49,7 @@ export async function GET() {
       privateDecks++;
       continue;
     }
-    if (d.quality_status === "checked") sharedChecked++;
+    if (d.publication_status === "checked") sharedChecked++;
     else sharedDraft++;
   }
 

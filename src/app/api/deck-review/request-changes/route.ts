@@ -8,7 +8,10 @@ function bad(message: string, status = 400) {
 }
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => null)) as { token?: string } | null;
+  const body = (await request.json().catch(() => null)) as {
+    token?: string;
+    message?: string;
+  } | null;
   if (!body?.token?.trim()) return bad("token required");
 
   const server = await createServerClient();
@@ -35,44 +38,29 @@ export async function POST(request: NextRequest) {
 
   const { data: deck, error: dErr } = await admin
     .from("decks")
-    .select("id,title,is_public,owner_id,publication_status,lineage_id")
+    .select("id,title,is_public,owner_id,publication_status")
     .eq("id", invite.deck_id)
     .single();
 
   if (dErr || !deck?.is_public) return bad("Deck not available", 400);
-  if (deck.publication_status !== "draft") return bad("Only a draft edition can be approved", 400);
+  if (deck.publication_status !== "draft") return bad("Only a draft can receive review feedback", 400);
 
+  const note = typeof body.message === "string" ? body.message.trim() : "";
   const now = new Date().toISOString();
-  const lineageId = deck.lineage_id as string;
-
-  await admin
-    .from("decks")
-    .update({ publication_status: "superseded", updated_at: now })
-    .eq("lineage_id", lineageId)
-    .eq("publication_status", "checked")
-    .neq("id", invite.deck_id);
 
   const { error: uDeck } = await admin
     .from("decks")
-    .update({
-      publication_status: "checked",
-      review_status: "none",
-      updated_at: now,
-    })
+    .update({ review_status: "revise_and_resubmit", updated_at: now })
     .eq("id", invite.deck_id);
 
   if (uDeck) return bad(uDeck.message || "Could not update deck", 500);
 
   const { error: uInv } = await admin
     .from("deck_review_invites")
-    .update({
-      status: "completed",
-      completed_at: now,
-      reviewer_user_id: user.id,
-    })
+    .update({ feedback_note: note || null })
     .eq("id", invite.id);
 
-  if (uInv) return bad(uInv.message || "Could not complete invite", 500);
+  if (uInv) return bad(uInv.message || "Could not save feedback", 500);
 
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const from =
@@ -83,12 +71,11 @@ export async function POST(request: NextRequest) {
     const ownerEmail = ownerAuth.user?.email;
     if (ownerEmail) {
       const deckUrl = `${getPublicAppUrl(request)}/deck/${deck.id}`;
-      const subject = `PSTUDY: your deck “${deck.title}” is now checked`;
+      const subject = `PSTUDY: feedback on your deck “${deck.title}”`;
       const text = [
-        `Your shared deck “${deck.title}” was reviewed by ${user.email}.`,
-        "Its community quality status is now checked (peer-verified).",
-        "",
-        "Open your deck:",
+        `${user.email} has feedback on your shared deck “${deck.title}”.`,
+        note ? `\n${note}\n` : "",
+        "Open your deck to revise and use “Resubmit for review” when ready:",
         deckUrl,
         "",
         "— PSTUDY Online",

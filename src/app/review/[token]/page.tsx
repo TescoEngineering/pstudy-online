@@ -20,6 +20,9 @@ export default function DeckReviewPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [completing, setCompleting] = useState(false);
+  const [requestModalOpen, setRequestModalOpen] = useState(false);
+  const [requestNote, setRequestNote] = useState("");
+  const [requestingChanges, setRequestingChanges] = useState(false);
 
   const tokenStr = Array.isArray(params.token)
     ? (params.token[0] ?? "")
@@ -77,8 +80,35 @@ export default function DeckReviewPage() {
     }
   }
 
+  const awaitingAuthorRevision = deck?.reviewStatus === "revise_and_resubmit";
+  const canRequestPublicationChanges = deck?.publicationStatus === "draft" && !awaitingAuthorRevision;
+
+  async function handleRequestChangesSend() {
+    if (!deck) return;
+    setRequestingChanges(true);
+    try {
+      const res = await fetch("/api/deck-review/request-changes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ token: tokenStr, message: requestNote }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "request failed");
+      toast.success(t("deckReview.requestChangesSuccess"));
+      setRequestModalOpen(false);
+      setRequestNote("");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("deckReview.requestChangesFailed"));
+    } finally {
+      setRequestingChanges(false);
+    }
+  }
+
   async function handleComplete() {
-    if (!deck || !window.confirm(t("deckReview.confirmComplete"))) return;
+    if (!deck || awaitingAuthorRevision) return;
+    if (!window.confirm(t("deckReview.confirmComplete"))) return;
     setCompleting(true);
     try {
       const res = await fetch("/api/deck-review/complete", {
@@ -123,6 +153,52 @@ export default function DeckReviewPage() {
 
   return (
     <div className="min-h-screen bg-stone-50">
+      {requestModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={(e) => e.target === e.currentTarget && !requestingChanges && setRequestModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-stone-200 bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-2 text-lg font-semibold text-stone-900">
+              {t("deckReview.requestChangesTitle")}
+            </h3>
+            <p className="mb-4 text-sm text-stone-600">{t("deckReview.requestChangesBody")}</p>
+            <textarea
+              value={requestNote}
+              onChange={(e) => setRequestNote(e.target.value)}
+              rows={4}
+              placeholder={t("deckReview.feedbackOptionalPlaceholder")}
+              className="mb-4 w-full resize-y rounded-lg border border-stone-300 px-3 py-2 text-sm text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+              disabled={requestingChanges}
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => !requestingChanges && setRequestModalOpen(false)}
+                className="btn-secondary"
+                disabled={requestingChanges}
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!window.confirm(t("deckReview.confirmRequestChanges"))) return;
+                  void handleRequestChangesSend();
+                }}
+                disabled={requestingChanges}
+                className="btn-primary text-sm disabled:opacity-50"
+              >
+                {requestingChanges ? t("deckReview.requestingChanges") : t("deckReview.requestChanges")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="border-b border-stone-200 bg-white">
         <div className="mx-auto flex max-w-5xl flex-col gap-2 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <Logo size="sm" withText />
@@ -142,6 +218,9 @@ export default function DeckReviewPage() {
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
           <p className="font-medium">{t("deckReview.bannerTitle")}</p>
           <p className="mt-1 text-amber-900/90">{t("deckReview.bannerBody")}</p>
+          {awaitingAuthorRevision && (
+            <p className="mt-2 font-medium text-amber-950">{t("deckReview.completeDisabledUntilResubmit")}</p>
+          )}
         </div>
 
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -165,10 +244,22 @@ export default function DeckReviewPage() {
             >
               {saving ? t("deck.saving") : t("deckReview.saveCorrections")}
             </button>
+            {canRequestPublicationChanges && (
+              <button
+                type="button"
+                onClick={() => setRequestModalOpen(true)}
+                className="btn-secondary text-sm"
+              >
+                {t("deckReview.requestChanges")}
+              </button>
+            )}
             <button
               type="button"
               onClick={handleComplete}
-              disabled={completing}
+              disabled={completing || awaitingAuthorRevision}
+              title={
+                awaitingAuthorRevision ? t("deckReview.completeDisabledUntilResubmit") : undefined
+              }
               className="btn-primary text-sm disabled:opacity-50"
             >
               {completing ? t("deckReview.completing") : t("deckReview.markChecked")}

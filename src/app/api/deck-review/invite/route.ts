@@ -37,14 +37,15 @@ export async function POST(request: NextRequest) {
 
   const { data: deck, error: dErr } = await admin
     .from("decks")
-    .select("id,owner_id,title,is_public,quality_status")
+    .select("id,owner_id,title,is_public,publication_status")
     .eq("id", body.deckId)
     .single();
 
   if (dErr || !deck) return bad("Deck not found", 404);
   if (deck.owner_id !== user.id) return bad("Not allowed", 403);
   if (!deck.is_public) return bad("Share the deck with the community before requesting a review");
-  if (deck.quality_status === "checked") return bad("This deck is already marked as checked");
+  if (deck.publication_status === "checked") return bad("This deck is already marked as checked");
+  if (deck.publication_status === "superseded") return bad("This edition is no longer active");
 
   await admin
     .from("deck_review_invites")
@@ -66,6 +67,11 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (iErr) return bad(iErr.message || "Could not create invite", 500);
+
+  await admin
+    .from("decks")
+    .update({ review_status: "submitted", updated_at: new Date().toISOString() })
+    .eq("id", deck.id);
 
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const from =

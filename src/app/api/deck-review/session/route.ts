@@ -83,7 +83,22 @@ export async function GET(request: NextRequest) {
     isPublic: d.is_public ?? false,
     fieldOfInterest: d.field_of_interest ?? null,
     topic: d.topic ?? null,
-    qualityStatus: d.quality_status === "checked" ? "checked" : "draft",
+    publicationStatus:
+      d.publication_status === "checked"
+        ? "checked"
+        : d.publication_status === "superseded"
+          ? "superseded"
+          : "draft",
+    reviewStatus:
+      d.review_status === "submitted"
+        ? "submitted"
+        : d.review_status === "revise_and_resubmit"
+          ? "revise_and_resubmit"
+          : d.review_status === "resubmitted"
+            ? "resubmitted"
+            : "none",
+    lineageId: (d.lineage_id as string) ?? d.id,
+    revisionNumber: d.revision_number ?? 1,
   };
 
   return NextResponse.json({ deck, inviteId: invite.id });

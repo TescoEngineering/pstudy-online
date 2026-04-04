@@ -108,11 +108,13 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleDuplicateForEdit(deckId: string) {
+  async function handleDuplicateForEdit(deckId: string, publicNextRevision?: boolean) {
     if (duplicatingDeckId) return;
     setDuplicatingDeckId(deckId);
     try {
-      const copy = await duplicateOwnedDeck(deckId);
+      const copy = await duplicateOwnedDeck(deckId, {
+        publicNextRevision: publicNextRevision ?? false,
+      });
       setDecks((prev) => [copy, ...prev.filter((d) => d.id !== copy.id)]);
       toast.success(t("dashboard.duplicateDeckSuccess"));
       router.push(`/deck/${copy.id}`);
@@ -350,15 +352,30 @@ export default function DashboardPage() {
                       {deck.isPublic ? t("dashboard.shared") : t("dashboard.private")}
                     </span>
                     {deck.isPublic ? (
-                      deck.qualityStatus === "checked" ? (
+                      deck.publicationStatus === "checked" ? (
                         <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
                           {t("deckReview.badgeChecked")}
+                        </span>
+                      ) : deck.publicationStatus === "superseded" ? (
+                        <span className="ml-2 rounded-full bg-stone-200 px-2 py-0.5 text-xs font-medium text-stone-700">
+                          {t("deckReview.badgeSuperseded")}
                         </span>
                       ) : (
                         <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
                           {t("deckReview.badgeDraft")}
                         </span>
                       )
+                    ) : null}
+                    {deck.isPublic &&
+                    deck.publicationStatus === "draft" &&
+                    deck.reviewStatus &&
+                    deck.reviewStatus !== "none" ? (
+                      <span
+                        className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-900"
+                        title={t("deckReview.reviewStatusHint")}
+                      >
+                        {t(`deckReview.reviewStatus_${deck.reviewStatus}`)}
+                      </span>
                     ) : null}
                   </p>
                 </div>
@@ -369,10 +386,15 @@ export default function DashboardPage() {
                   >
                     {t("common.practice")}
                   </Link>
-                  {!mergeMode && deck.qualityStatus === "checked" ? (
+                  {!mergeMode && deck.publicationStatus === "checked" ? (
                     <button
                       type="button"
-                      onClick={() => handleDuplicateForEdit(deck.id)}
+                      onClick={() =>
+                        handleDuplicateForEdit(
+                          deck.id,
+                          deck.publicationStatus === "checked" && !!deck.isPublic
+                        )
+                      }
                       disabled={duplicatingDeckId !== null}
                       className="btn-secondary text-sm disabled:opacity-60"
                     >
