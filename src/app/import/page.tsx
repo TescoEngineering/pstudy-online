@@ -5,10 +5,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "@/lib/i18n";
 import { Logo } from "@/components/Logo";
 import { HelpNavLink } from "@/components/HelpNavLink";
-import { parsePStudyTxt } from "@/lib/txt-import";
+import { formatPStudyRowsAsTxt, parsePStudyTxt } from "@/lib/txt-import";
 import {
+  DECK_GENERATION_LANGUAGE_CODES,
   MAX_DOCUMENT_CHARS,
+  type DeckGenerationLanguage,
   type GenerateOutputMode,
+  type McWrongOptionCount,
   splitGeneratedItemsByPracticeKind,
 } from "@/lib/ai-deck-generate";
 import { Deck, PStudyItem } from "@/types/pstudy";
@@ -20,6 +23,40 @@ import { useToast } from "@/components/Toast";
 /** Shared shell for .txt drop / paste / browse (Import section and AI empty state). */
 const TXT_IMPORT_DROP_ZONE_CLASS =
   "flex min-h-[12rem] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-stone-300 bg-white p-8 text-center transition hover:border-pstudy-primary hover:bg-teal-50/30";
+
+function sanitizeAiExportBasename(title: string): string {
+  const t = title.trim().slice(0, 80) || "pstudy-generated";
+  return t
+    .replace(/[/\\?%*:|"<>]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\s+/g, "-");
+}
+
+function downloadUtf8TextFile(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** When the API returns `itemsFull`, offer both the uncapped list and the capped deck as PSTUDY .txt downloads. */
+function downloadAiPstudyTxtPair(
+  baseTitle: string,
+  itemsFull: Omit<PStudyItem, "id">[],
+  itemsCapped: Omit<PStudyItem, "id">[],
+  afterSecondFile: () => void
+) {
+  const base = sanitizeAiExportBasename(baseTitle);
+  downloadUtf8TextFile(`${base}-ai-full.txt`, formatPStudyRowsAsTxt(itemsFull));
+  window.setTimeout(() => {
+    downloadUtf8TextFile(`${base}-ai-pstudy-capped.txt`, formatPStudyRowsAsTxt(itemsCapped));
+    afterSecondFile();
+  }, 350);
+}
 
 async function doImport(
   text: string,
@@ -71,6 +108,8 @@ export default function ImportPage() {
   const [aiOutput, setAiOutput] = useState<GenerateOutputMode>("both");
   const [aiFlashcardCount, setAiFlashcardCount] = useState(12);
   const [aiMcCount, setAiMcCount] = useState(10);
+  const [aiMcWrongOptionCount, setAiMcWrongOptionCount] = useState<McWrongOptionCount>(4);
+  const [aiDeckLanguage, setAiDeckLanguage] = useState<DeckGenerationLanguage>("auto");
   const [aiDeckTitle, setAiDeckTitle] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiSourceEditorOpen, setAiSourceEditorOpen] = useState(false);
@@ -194,14 +233,17 @@ export default function ImportPage() {
           outputMode: aiOutput,
           flashcardCount: aiFlashcardCount,
           multipleChoiceCount: aiMcCount,
+          mcWrongOptionCount: aiMcWrongOptionCount,
+          deckLanguage: aiDeckLanguage,
           deckTitle: aiDeckTitle.trim() || undefined,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         items?: Omit<PStudyItem, "id">[];
+        itemsFull?: Omit<PStudyItem, "id">[];
         deckTitle?: string;
-        meta?: { truncated?: boolean };
+        meta?: { truncated?: boolean; extraItemsDropped?: number };
       };
       if (!res.ok) {
         if (res.status === 503) {
@@ -219,9 +261,27 @@ export default function ImportPage() {
         return;
       }
       const baseTitle = data.deckTitle ?? "Generated deck";
+      const itemsFull = data.itemsFull;
 
       const withIds = (raw: Omit<PStudyItem, "id">[]): PStudyItem[] =>
         raw.map((it) => ({ ...it, id: crypto.randomUUID() }));
+
+      const maybeDownloadFullAndCappedTxt = () => {
+        if (!itemsFull?.length) return;
+        downloadAiPstudyTxtPair(baseTitle, itemsFull, items, () =>
+          pushToast(t("import.aiTxtExportsDownloaded"), "info")
+        );
+      };
+
+      const notifyAiMeta = (meta?: { truncated?: boolean; extraItemsDropped?: number }) => {
+        if (meta?.truncated) {
+          pushToast(t("import.aiTruncatedNote"), "info");
+        }
+        const dropped = meta?.extraItemsDropped ?? 0;
+        if (dropped > 0) {
+          pushToast(t("import.aiExtraItemsDroppedNote", { count: dropped }), "info");
+        }
+      };
 
       if (aiOutput === "both") {
         const { flashcardItems, multipleChoiceItems } = splitGeneratedItemsByPracticeKind(items);
@@ -230,9 +290,8 @@ export default function ImportPage() {
           await saveDeckWithItems({ ...fcDeck, items: withIds(flashcardItems) });
           const mcDeck = await createDeck(`${baseTitle}${t("import.aiDeckSuffixMc")}`);
           await saveDeckWithItems({ ...mcDeck, items: withIds(multipleChoiceItems) });
-          if (data.meta?.truncated) {
-            pushToast(t("import.aiTruncatedNote"), "info");
-          }
+          maybeDownloadFullAndCappedTxt();
+          notifyAiMeta(data.meta);
           toastSuccess(t("import.aiSuccessTwoDecks"));
           router.push("/dashboard");
           return;
@@ -246,9 +305,8 @@ export default function ImportPage() {
         }
         const newDeck = await createDeck(baseTitle);
         await saveDeckWithItems({ ...newDeck, items: withIds(singleSlice) });
-        if (data.meta?.truncated) {
-          pushToast(t("import.aiTruncatedNote"), "info");
-        }
+        maybeDownloadFullAndCappedTxt();
+        notifyAiMeta(data.meta);
         toastSuccess(t("import.aiSuccess"));
         router.push(`/deck/${newDeck.id}`);
         return;
@@ -256,9 +314,8 @@ export default function ImportPage() {
 
       const newDeck = await createDeck(baseTitle);
       await saveDeckWithItems({ ...newDeck, items: withIds(items) });
-      if (data.meta?.truncated) {
-        pushToast(t("import.aiTruncatedNote"), "info");
-      }
+      maybeDownloadFullAndCappedTxt();
+      notifyAiMeta(data.meta);
       toastSuccess(t("import.aiSuccess"));
       router.push(`/deck/${newDeck.id}`);
     } catch {
@@ -271,6 +328,8 @@ export default function ImportPage() {
     aiOutput,
     aiFlashcardCount,
     aiMcCount,
+    aiMcWrongOptionCount,
+    aiDeckLanguage,
     aiDeckTitle,
     router,
     pushToast,
@@ -483,6 +542,23 @@ export default function ImportPage() {
             ) : null}
           </fieldset>
 
+          <label className="mt-4 block text-sm font-medium text-stone-700" htmlFor="ai-deck-lang">
+            {t("import.aiDeckLanguageLabel")}
+          </label>
+          <select
+            id="ai-deck-lang"
+            value={aiDeckLanguage}
+            onChange={(e) => setAiDeckLanguage(e.target.value as DeckGenerationLanguage)}
+            className="mt-1 max-w-md rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary"
+            disabled={aiBusy}
+          >
+            {DECK_GENERATION_LANGUAGE_CODES.map((code) => (
+              <option key={code} value={code}>
+                {t(`import.aiDeckLang_${code}`)}
+              </option>
+            ))}
+          </select>
+
           <div className="mt-6 flex flex-wrap gap-6">
             {(aiOutput === "flashcards" || aiOutput === "both") && (
               <label className="flex flex-col text-sm text-stone-700">
@@ -513,6 +589,32 @@ export default function ImportPage() {
               </label>
             )}
           </div>
+
+          {(aiOutput === "multiple_choice" || aiOutput === "both") && (
+            <fieldset className="mt-4 space-y-2">
+              <legend className="text-sm font-medium text-stone-700">
+                {t("import.aiMcWrongOptionsLegend")}
+              </legend>
+              {(
+                [
+                  [3, t("import.aiMcWrongThree")] as const,
+                  [4, t("import.aiMcWrongFour")] as const,
+                ] as const
+              ).map(([value, label]) => (
+                <label key={value} className="flex cursor-pointer items-center gap-2 text-sm text-stone-800">
+                  <input
+                    type="radio"
+                    name="ai-mc-wrong-count"
+                    checked={aiMcWrongOptionCount === value}
+                    onChange={() => setAiMcWrongOptionCount(value)}
+                    className="border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                    disabled={aiBusy}
+                  />
+                  {label}
+                </label>
+              ))}
+            </fieldset>
+          )}
 
           <label className="mt-6 block text-sm font-medium text-stone-700" htmlFor="ai-title">
             {t("import.aiDeckTitle")}

@@ -3,6 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import {
   buildSystemPrompt,
   buildUserPrompt,
+  maybeCapAiGeneratedItems,
+  clampMcWrongOptionCount,
+  normalizeDeckGenerationLanguage,
   parseGeneratedPayload,
   rawToStudyItems,
   truncateDocument,
@@ -104,7 +107,9 @@ export async function POST(request: NextRequest) {
     outputMode?: string;
     flashcardCount?: number;
     multipleChoiceCount?: number;
+    mcWrongOptionCount?: unknown;
     deckTitle?: string;
+    deckLanguage?: unknown;
   } | null;
 
   const rawText = typeof body?.documentText === "string" ? body.documentText : "";
@@ -128,15 +133,24 @@ export async function POST(request: NextRequest) {
       ? Math.floor(body.multipleChoiceCount)
       : 10;
 
+  const mcWrongOptionCount = clampMcWrongOptionCount(body?.mcWrongOptionCount);
+  const deckLanguage = normalizeDeckGenerationLanguage(body?.deckLanguage);
+
   const { text: documentText, truncated } = truncateDocument(rawText);
 
   let jsonText: string;
   try {
     jsonText = await callOpenAIJson([
-      { role: "system", content: buildSystemPrompt() },
+      { role: "system", content: buildSystemPrompt(deckLanguage) },
       {
         role: "user",
-        content: buildUserPrompt(documentText, outputMode, flashcardCount, multipleChoiceCount),
+        content: buildUserPrompt(
+          documentText,
+          outputMode,
+          flashcardCount,
+          multipleChoiceCount,
+          mcWrongOptionCount
+        ),
       },
     ]);
   } catch (e) {
@@ -166,7 +180,9 @@ export async function POST(request: NextRequest) {
     return bad("Could not parse AI response. Try again.", 502);
   }
 
-  const items = rawToStudyItems(rawPayload, outputMode);
+  const parsedItems = rawToStudyItems(rawPayload, outputMode, mcWrongOptionCount);
+  const items = maybeCapAiGeneratedItems(parsedItems, outputMode, flashcardCount, multipleChoiceCount);
+  const extraItemsDropped = Math.max(0, parsedItems.length - items.length);
   if (items.length === 0) {
     return bad("The model did not return any usable items. Try different settings or a richer document.");
   }
@@ -178,7 +194,14 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     items,
+    ...(extraItemsDropped > 0 ? { itemsFull: parsedItems } : {}),
     deckTitle,
-    meta: { truncated, outputMode },
+    meta: {
+      truncated,
+      outputMode,
+      mcWrongOptionCount,
+      deckLanguage,
+      extraItemsDropped,
+    },
   });
 }

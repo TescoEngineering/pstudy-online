@@ -193,6 +193,7 @@ export default function HelpPage() {
     { id: "decks", titleKey: "help.sectionDecks", bodyKey: "help.bodyDecks" },
     { id: "practice", titleKey: "help.sectionPractice", bodyKey: "help.bodyPractice" },
     { id: "import", titleKey: "help.sectionImport", bodyKey: "help.bodyImport" },
+    { id: "ai-generate", titleKey: "help.sectionAiGenerate", bodyKey: "help.bodyAiGenerate" },
     { id: "exams", titleKey: "help.sectionExams", bodyKey: "help.bodyExams" },
     { id: "community", titleKey: "help.sectionCommunity", bodyKey: "help.bodyCommunity" },
     { id: "peer-review", titleKey: "help.sectionPeerReview", bodyKey: "help.bodyPeerReview" },

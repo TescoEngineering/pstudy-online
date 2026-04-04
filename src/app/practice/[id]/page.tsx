@@ -1034,6 +1034,8 @@ export default function PracticePage() {
         next();
       } else if (mode === "straight") {
         handleEnterToCheck();
+      } else if (mode === "multiple-choice" && answer.trim()) {
+        handleEnterToCheck();
       }
     };
     window.addEventListener("keydown", handler, true);
@@ -1042,6 +1044,7 @@ export default function PracticePage() {
     showResult,
     next,
     mode,
+    answer,
     handleEnterToCheck,
     flashcardRevealed,
     revealFlashcard,
@@ -1782,19 +1785,33 @@ export default function PracticePage() {
               </div>
               )
             ) : (
-              <div className="flex flex-col gap-2">
-                {mcOptions.map((opt) => (
-                  <button
-                    key={opt}
-                    onClick={() => {
-                      setAnswer(opt);
-                      checkAnswer(opt);
-                    }}
-                    className="rounded-lg border border-stone-300 bg-white px-4 py-3 text-left transition hover:border-pstudy-primary hover:bg-teal-50"
-                  >
-                    {opt}
-                  </button>
-                ))}
+              <div className="flex flex-col gap-3">
+                <p className="text-sm text-stone-600">{t("practice.mcSelectThenConfirm")}</p>
+                {mcOptions.map((opt) => {
+                  const selected = answer === opt;
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => setAnswer(opt)}
+                      className={`rounded-lg border px-4 py-3 text-left transition ${
+                        selected
+                          ? "border-pstudy-primary bg-teal-50 ring-2 ring-pstudy-primary/30"
+                          : "border-stone-300 bg-white hover:border-pstudy-primary hover:bg-teal-50/60"
+                      }`}
+                    >
+                      {opt}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => handleEnterToCheck()}
+                  disabled={!answer.trim()}
+                  className="btn-primary w-full touch-manipulation py-3 sm:w-auto sm:px-8 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {t("practice.checkAnswer")}
+                </button>
               </div>
             )}
           </>

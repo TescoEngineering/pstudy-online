@@ -176,3 +176,8 @@ export function generatePStudyTxt(items: PStudyItem[]): string {
     )
     .join("\n");
 }
+
+/** Tab-separated export for rows without persisted ids (e.g. AI JSON before saving). */
+export function formatPStudyRowsAsTxt(rows: Omit<PStudyItem, "id">[]): string {
+  return generatePStudyTxt(rows.map((it, i) => ({ ...it, id: `export-${i}` })));
+}
