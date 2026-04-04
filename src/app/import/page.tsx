@@ -6,12 +6,20 @@ import { useTranslation } from "@/lib/i18n";
 import { Logo } from "@/components/Logo";
 import { HelpNavLink } from "@/components/HelpNavLink";
 import { parsePStudyTxt } from "@/lib/txt-import";
-import type { GenerateOutputMode } from "@/lib/ai-deck-generate";
+import {
+  MAX_DOCUMENT_CHARS,
+  type GenerateOutputMode,
+  splitGeneratedItemsByPracticeKind,
+} from "@/lib/ai-deck-generate";
 import { Deck, PStudyItem } from "@/types/pstudy";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { createDeck, saveDeckWithItems } from "@/lib/supabase/decks";
 import { useToast } from "@/components/Toast";
+
+/** Shared shell for .txt drop / paste / browse (Import section and AI empty state). */
+const TXT_IMPORT_DROP_ZONE_CLASS =
+  "flex min-h-[12rem] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-stone-300 bg-white p-8 text-center transition hover:border-pstudy-primary hover:bg-teal-50/30";
 
 async function doImport(
   text: string,
@@ -65,7 +73,10 @@ export default function ImportPage() {
   const [aiMcCount, setAiMcCount] = useState(10);
   const [aiDeckTitle, setAiDeckTitle] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
+  const [aiSourceEditorOpen, setAiSourceEditorOpen] = useState(false);
   const aiFileRef = useRef<HTMLInputElement>(null);
+
+  const showAiSourceEditor = aiSourceEditorOpen || !!aiDocument.trim();
 
   useEffect(() => {
     const supabase = createClient();
@@ -133,6 +144,29 @@ export default function ImportPage() {
     e.dataTransfer.dropEffect = "copy";
   }, []);
 
+  const handleAiDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files?.[0];
+      if (!file || !file.name.toLowerCase().endsWith(".txt")) {
+        toastError(t("import.aiDropTxtOnly"));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        setAiDocument(String(reader.result ?? ""));
+      };
+      reader.readAsText(file, "UTF-8");
+    },
+    [toastError, t]
+  );
+
+  const handleAiSourcePaste = useCallback((e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData("text/plain");
+    if (text) setAiDocument(text);
+  }, []);
+
   const handleAiFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -184,13 +218,44 @@ export default function ImportPage() {
         setAiBusy(false);
         return;
       }
-      const deckTitle = data.deckTitle ?? "Generated deck";
-      const newDeck = await createDeck(deckTitle);
-      const itemsWithIds: PStudyItem[] = items.map((it) => ({
-        ...it,
-        id: crypto.randomUUID(),
-      }));
-      await saveDeckWithItems({ ...newDeck, items: itemsWithIds });
+      const baseTitle = data.deckTitle ?? "Generated deck";
+
+      const withIds = (raw: Omit<PStudyItem, "id">[]): PStudyItem[] =>
+        raw.map((it) => ({ ...it, id: crypto.randomUUID() }));
+
+      if (aiOutput === "both") {
+        const { flashcardItems, multipleChoiceItems } = splitGeneratedItemsByPracticeKind(items);
+        if (flashcardItems.length > 0 && multipleChoiceItems.length > 0) {
+          const fcDeck = await createDeck(`${baseTitle}${t("import.aiDeckSuffixFlashcards")}`);
+          await saveDeckWithItems({ ...fcDeck, items: withIds(flashcardItems) });
+          const mcDeck = await createDeck(`${baseTitle}${t("import.aiDeckSuffixMc")}`);
+          await saveDeckWithItems({ ...mcDeck, items: withIds(multipleChoiceItems) });
+          if (data.meta?.truncated) {
+            pushToast(t("import.aiTruncatedNote"), "info");
+          }
+          toastSuccess(t("import.aiSuccessTwoDecks"));
+          router.push("/dashboard");
+          return;
+        }
+        const singleSlice =
+          flashcardItems.length > 0 ? flashcardItems : multipleChoiceItems;
+        if (singleSlice.length === 0) {
+          toastError(t("import.aiErrorGeneric"));
+          setAiBusy(false);
+          return;
+        }
+        const newDeck = await createDeck(baseTitle);
+        await saveDeckWithItems({ ...newDeck, items: withIds(singleSlice) });
+        if (data.meta?.truncated) {
+          pushToast(t("import.aiTruncatedNote"), "info");
+        }
+        toastSuccess(t("import.aiSuccess"));
+        router.push(`/deck/${newDeck.id}`);
+        return;
+      }
+
+      const newDeck = await createDeck(baseTitle);
+      await saveDeckWithItems({ ...newDeck, items: withIds(items) });
       if (data.meta?.truncated) {
         pushToast(t("import.aiTruncatedNote"), "info");
       }
@@ -240,9 +305,9 @@ export default function ImportPage() {
       </header>
 
       <main className="mx-auto max-w-4xl space-y-12 px-4 py-8">
-        <section>
+        <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
           <h1 className="mb-2 text-2xl font-bold text-stone-900">{t("import.title")}</h1>
-          <p className="mb-6 text-stone-600">
+          <p className="mb-6 text-sm text-stone-600">
             {t("import.dropHint")} {t("import.pasteNote")}
           </p>
 
@@ -253,7 +318,7 @@ export default function ImportPage() {
             onDrop={handleDrop}
             onDragOver={handleDragOver}
             onClick={() => fileInputRef.current?.click()}
-            className={`flex min-h-[12rem] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-stone-300 bg-white p-8 text-center transition hover:border-pstudy-primary hover:bg-teal-50/30 ${
+            className={`${TXT_IMPORT_DROP_ZONE_CLASS} ${
               importing || aiBusy ? "pointer-events-none opacity-60" : ""
             }`}
           >
@@ -276,40 +341,120 @@ export default function ImportPage() {
         </section>
 
         <section className="rounded-xl border border-stone-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-stone-900">{t("import.aiSectionTitle")}</h2>
-          <p className="mt-2 text-sm text-stone-600">{t("import.aiSectionIntro")}</p>
+          <h2 className="mb-2 text-2xl font-bold text-stone-900">{t("import.aiSectionTitle")}</h2>
+          <p className="mb-6 text-sm text-stone-600">{t("import.aiSectionIntro")}</p>
 
-          <label className="mt-4 block text-sm font-medium text-stone-700" htmlFor="ai-doc">
-            {t("import.aiDocumentLabel")}
-          </label>
-          <textarea
-            id="ai-doc"
-            value={aiDocument}
-            onChange={(e) => setAiDocument(e.target.value)}
-            rows={12}
-            placeholder={t("import.aiDocumentPlaceholder")}
-            className="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 font-mono text-sm text-stone-800 placeholder:text-stone-400 focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary"
-            disabled={aiBusy}
+          <input
+            ref={aiFileRef}
+            type="file"
+            accept=".txt,text/plain"
+            className="hidden"
+            onChange={handleAiFile}
           />
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <input
-              ref={aiFileRef}
-              type="file"
-              accept=".txt,text/plain"
-              className="hidden"
-              onChange={handleAiFile}
-            />
-            <button
-              type="button"
-              onClick={() => aiFileRef.current?.click()}
-              className="rounded border border-stone-300 bg-stone-50 px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-100"
-              disabled={aiBusy}
-            >
-              {t("import.aiLoadTxt")}
-            </button>
-          </div>
 
-          <fieldset className="mt-4 space-y-2">
+          {!showAiSourceEditor ? (
+            <div
+              role="button"
+              tabIndex={0}
+              onPaste={handleAiSourcePaste}
+              onDrop={handleAiDrop}
+              onDragOver={handleDragOver}
+              onClick={() => !aiBusy && aiFileRef.current?.click()}
+              className={`${TXT_IMPORT_DROP_ZONE_CLASS} ${
+                aiBusy ? "pointer-events-none opacity-60" : ""
+              }`}
+            >
+              {aiBusy ? (
+                <p className="text-stone-600">{t("import.aiGenerating")}</p>
+              ) : (
+                <>
+                  <p className="mb-1 font-medium text-stone-700">{t("import.dropHint")}</p>
+                  <p className="text-sm text-stone-500">{t("import.pasteHint")}</p>
+                  <button
+                    type="button"
+                    className="mt-4 text-sm font-medium text-pstudy-primary hover:underline"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAiSourceEditorOpen(true);
+                    }}
+                  >
+                    {t("import.aiOpenTextEditor")}
+                  </button>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <div
+                onDrop={handleAiDrop}
+                onDragOver={handleDragOver}
+                className={`rounded-lg border-2 border-dashed border-stone-300 bg-white transition focus-within:border-pstudy-primary focus-within:ring-2 focus-within:ring-pstudy-primary ${
+                  aiBusy ? "pointer-events-none opacity-60" : ""
+                }`}
+              >
+                <label htmlFor="ai-doc" className="sr-only">
+                  {t("import.aiDocumentLabel")}
+                </label>
+                <textarea
+                  id="ai-doc"
+                  value={aiDocument}
+                  onChange={(e) => setAiDocument(e.target.value)}
+                  rows={12}
+                  placeholder={t("import.aiDocumentPlaceholder")}
+                  disabled={aiBusy}
+                  className="min-h-[12rem] w-full resize-y border-0 bg-transparent px-4 py-4 font-mono text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-0"
+                />
+              </div>
+              {aiDocument.length > MAX_DOCUMENT_CHARS ? (
+                <p
+                  className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+                  role="status"
+                >
+                  {t("import.aiDocumentOverLimit", {
+                    usedChars: aiDocument.length.toLocaleString(),
+                    maxChars: MAX_DOCUMENT_CHARS.toLocaleString(),
+                  })}
+                </p>
+              ) : aiDocument.length > MAX_DOCUMENT_CHARS * 0.85 ? (
+                <p className="text-xs text-amber-900/90" role="status">
+                  {t("import.aiDocumentNearLimit", {
+                    usedChars: aiDocument.length.toLocaleString(),
+                    maxChars: MAX_DOCUMENT_CHARS.toLocaleString(),
+                  })}
+                </p>
+              ) : aiDocument.trim() ? (
+                <p className="text-xs text-stone-500">
+                  {t("import.aiDocumentCharBudget", {
+                    usedChars: aiDocument.length.toLocaleString(),
+                    maxChars: MAX_DOCUMENT_CHARS.toLocaleString(),
+                  })}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => aiFileRef.current?.click()}
+                  className="rounded border border-stone-300 bg-stone-50 px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-100"
+                  disabled={aiBusy}
+                >
+                  {t("import.aiLoadTxt")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAiDocument("");
+                    setAiSourceEditorOpen(false);
+                  }}
+                  className="text-sm text-stone-600 underline decoration-stone-400 underline-offset-2 hover:text-stone-900"
+                  disabled={aiBusy}
+                >
+                  {t("import.aiClearSource")}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <fieldset className="mt-6 space-y-2">
             <legend className="text-sm font-medium text-stone-700">
               {t("import.aiOutputLabel")}
             </legend>
@@ -333,9 +478,12 @@ export default function ImportPage() {
                 {label}
               </label>
             ))}
+            {aiOutput === "both" ? (
+              <p className="mt-2 text-xs text-stone-600">{t("import.aiBothCreatesTwoDecksNote")}</p>
+            ) : null}
           </fieldset>
 
-          <div className="mt-4 flex flex-wrap gap-6">
+          <div className="mt-6 flex flex-wrap gap-6">
             {(aiOutput === "flashcards" || aiOutput === "both") && (
               <label className="flex flex-col text-sm text-stone-700">
                 <span>{t("import.aiFlashcardCount")}</span>
@@ -366,7 +514,7 @@ export default function ImportPage() {
             )}
           </div>
 
-          <label className="mt-4 block text-sm font-medium text-stone-700" htmlFor="ai-title">
+          <label className="mt-6 block text-sm font-medium text-stone-700" htmlFor="ai-title">
             {t("import.aiDeckTitle")}
           </label>
           <input

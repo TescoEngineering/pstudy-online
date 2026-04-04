@@ -13,31 +13,73 @@ function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
+function openAiMessageFromBody(errBody: string): string {
+  try {
+    const j = JSON.parse(errBody) as { error?: { message?: string } };
+    const m = j.error?.message?.trim();
+    if (m) return m.length > 280 ? `${m.slice(0, 277)}…` : m;
+  } catch {
+    /* ignore */
+  }
+  return "";
+}
+
 async function callOpenAIJson(messages: { role: "system" | "user"; content: string }[]): Promise<string> {
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) {
     throw new Error("OPENAI_API_KEY_MISSING");
   }
-  const model = (process.env.OPENAI_MODEL ?? "gpt-4o-mini").trim();
+  /**
+   * Default: GPT-5.4 mini (faster / cheaper than full GPT-5.4, stronger 5.x family — see https://platform.openai.com/docs/models/gpt-5.4-mini).
+   * Override OPENAI_MODEL for max quality (e.g. gpt-5.4) or if your org does not have 5.x yet (e.g. gpt-4o-mini).
+   */
+  const model = (process.env.OPENAI_MODEL ?? "gpt-5.4-mini").trim();
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.35,
-      response_format: { type: "json_object" },
-      max_completion_tokens: 8192,
-    }),
+  const url = "https://api.openai.com/v1/chat/completions";
+  const headers = {
+    Authorization: `Bearer ${key}`,
+    "Content-Type": "application/json",
+  };
+
+  /** Avoid max_* caps: wrong names or sizes cause 400 on some models/billing tiers. */
+  const bodyWithJsonMode = JSON.stringify({
+    model,
+    messages,
+    temperature: 0.25,
+    response_format: { type: "json_object" },
   });
+
+  let res = await fetch(url, { method: "POST", headers, body: bodyWithJsonMode });
+
+  if (!res.ok && res.status === 400) {
+    const errText = await res.text();
+    const hint = openAiMessageFromBody(errText);
+    const retryWithoutJsonMode =
+      /response_format|json_object|json mode/i.test(hint) || hint.length === 0;
+    if (retryWithoutJsonMode) {
+      res = await fetch(
+        url,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            model,
+            messages,
+            temperature: 0.25,
+          }),
+        }
+      );
+    } else {
+      throw new Error(
+        `OPENAI_HTTP_${res.status}:${hint || errText.slice(0, 200)}`
+      );
+    }
+  }
 
   if (!res.ok) {
     const errBody = await res.text();
-    throw new Error(`OPENAI_HTTP_${res.status}:${errBody.slice(0, 400)}`);
+    const hint = openAiMessageFromBody(errBody);
+    throw new Error(`OPENAI_HTTP_${res.status}:${hint || errBody.slice(0, 200)}`);
   }
 
   const data = (await res.json()) as {
@@ -106,7 +148,13 @@ export async function POST(request: NextRequest) {
       );
     }
     if (msg.startsWith("OPENAI_HTTP_")) {
-      return bad("The AI service returned an error. Try a shorter document or try again later.", 502);
+      const detail = msg.includes(":") ? msg.slice(msg.indexOf(":") + 1) : "";
+      return bad(
+        detail
+          ? `AI service: ${detail}`
+          : "The AI service returned an error. Check billing and API key, or try a shorter document.",
+        502
+      );
     }
     return bad(msg, 502);
   }
