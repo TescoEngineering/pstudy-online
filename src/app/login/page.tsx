@@ -76,7 +76,13 @@ export default function LoginPage() {
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        router.push("/dashboard");
+        const next =
+          typeof window !== "undefined"
+            ? new URLSearchParams(window.location.search).get("next")
+            : null;
+        const dest =
+          next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+        router.push(dest);
         router.refresh();
       }
     } catch (err: unknown) {

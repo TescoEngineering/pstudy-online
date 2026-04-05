@@ -66,6 +66,16 @@ import {
   type DeckContentLanguageCode,
 } from "@/lib/deck-content-language";
 import { deckIsReadOnlyPublication } from "@/lib/deck-publication";
+import type { DeckOrgShareVisibility } from "@/types/organization";
+import {
+  fetchMyOrganizationMemberships,
+  listDeckOrgSharesForOrgs,
+  removeSchoolDeckShare,
+  upsertSchoolDeckShare,
+  verifySchoolDeckShare,
+  type DeckOrgShareState,
+  type OrganizationMembership,
+} from "@/lib/supabase/organizations";
 
 function isClassificationComplete(
   d: Pick<Deck, "fieldOfInterest" | "topic" | "contentLanguage">
@@ -103,6 +113,15 @@ export default function DeckEditorPage() {
   const columnMenuRef = useRef<HTMLDivElement>(null);
   const [duplicatingDeck, setDuplicatingDeck] = useState(false);
   const [resubmittingReview, setResubmittingReview] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [orgMemberships, setOrgMemberships] = useState<OrganizationMembership[]>([]);
+  const [allOrgShares, setAllOrgShares] = useState<DeckOrgShareState[]>([]);
+  const [schoolOrgId, setSchoolOrgId] = useState<string>("");
+  const [schoolShare, setSchoolShare] = useState<DeckOrgShareState | null>(null);
+  const [schoolVisibilityChoice, setSchoolVisibilityChoice] =
+    useState<DeckOrgShareVisibility>("school");
+  const [schoolPanelOpen, setSchoolPanelOpen] = useState(false);
+  const [schoolBusy, setSchoolBusy] = useState(false);
 
   const deckContentLangCodes = useMemo(
     () => parseDeckContentLanguages(deck?.contentLanguage),
@@ -191,6 +210,7 @@ export default function DeckEditorPage() {
         router.replace("/login");
         return;
       }
+      setCurrentUserId(user.id);
       const d = await fetchDeck(id);
       setDeck(d ?? null);
       if (d) setTitle(d.title);
@@ -198,6 +218,38 @@ export default function DeckEditorPage() {
     }
     load();
   }, [id, router]);
+
+  useEffect(() => {
+    if (!deck?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const mems = await fetchMyOrganizationMemberships();
+        if (cancelled) return;
+        setOrgMemberships(mems);
+        if (mems.length === 0) {
+          setAllOrgShares([]);
+          setSchoolShare(null);
+          setSchoolOrgId("");
+          return;
+        }
+        const ids = mems.map((m) => m.organizationId);
+        const shares = await listDeckOrgSharesForOrgs(deck.id, ids);
+        if (cancelled) return;
+        setAllOrgShares(shares);
+        const pickOrg = shares[0]?.organizationId ?? mems[0]!.organizationId;
+        setSchoolOrgId(pickOrg);
+        const cur = shares.find((s) => s.organizationId === pickOrg) ?? null;
+        setSchoolShare(cur);
+        setSchoolVisibilityChoice(cur?.visibility ?? "school");
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [deck?.id]);
 
   useEffect(() => {
     if (!deck) return;
@@ -388,6 +440,84 @@ export default function DeckEditorPage() {
     }
   }
 
+  function onSelectSchoolOrg(oid: string) {
+    setSchoolOrgId(oid);
+    const cur = allOrgShares.find((s) => s.organizationId === oid) ?? null;
+    setSchoolShare(cur);
+    setSchoolVisibilityChoice(cur?.visibility ?? "school");
+  }
+
+  async function handleSaveSchoolShare() {
+    if (!deck || !schoolOrgId) return;
+    const mem = orgMemberships.find((m) => m.organizationId === schoolOrgId);
+    if (!mem) return;
+    if (schoolVisibilityChoice === "teachers_only" && mem.role === "student") {
+      toast.error(t("school.roleRequiredTeachersOnly"));
+      return;
+    }
+    setSchoolBusy(true);
+    try {
+      await upsertSchoolDeckShare(deck.id, schoolOrgId, schoolVisibilityChoice);
+      const shares = await listDeckOrgSharesForOrgs(
+        deck.id,
+        orgMemberships.map((m) => m.organizationId)
+      );
+      setAllOrgShares(shares);
+      const cur = shares.find((s) => s.organizationId === schoolOrgId) ?? null;
+      setSchoolShare(cur);
+      toast.success(t("school.shareSaved"));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("school.shareFailed"));
+    } finally {
+      setSchoolBusy(false);
+    }
+  }
+
+  async function handleRemoveSchoolShare() {
+    if (!deck || !schoolShare) return;
+    setSchoolBusy(true);
+    try {
+      await removeSchoolDeckShare(deck.id, schoolShare.organizationId);
+      const shares = await listDeckOrgSharesForOrgs(
+        deck.id,
+        orgMemberships.map((m) => m.organizationId)
+      );
+      setAllOrgShares(shares);
+      const cur = shares.find((s) => s.organizationId === schoolOrgId) ?? null;
+      setSchoolShare(cur ?? null);
+      toast.success(t("school.shareRemoved"));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("school.shareFailed"));
+    } finally {
+      setSchoolBusy(false);
+    }
+  }
+
+  async function handleVerifySchoolFromDeck() {
+    if (!deck || !schoolShare || schoolShare.visibility !== "school") return;
+    setSchoolBusy(true);
+    try {
+      await verifySchoolDeckShare(deck.id, schoolShare.organizationId);
+      const shares = await listDeckOrgSharesForOrgs(
+        deck.id,
+        orgMemberships.map((m) => m.organizationId)
+      );
+      setAllOrgShares(shares);
+      const cur = shares.find((s) => s.organizationId === schoolOrgId) ?? null;
+      setSchoolShare(cur ?? null);
+      toast.success(t("school.verifySuccess"));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg.includes("duplicate") || msg.includes("unique")) {
+        toast.error(t("school.alreadyVerified"));
+      } else {
+        toast.error(e instanceof Error ? e.message : t("school.verifyFailed"));
+      }
+    } finally {
+      setSchoolBusy(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-50 px-4">
@@ -412,6 +542,7 @@ export default function DeckEditorPage() {
   }
 
   const deckLocked = deck ? deckIsReadOnlyPublication(deck.publicationStatus ?? "draft") : false;
+  const isDeckOwner = !!(deck && currentUserId && deck.ownerId === currentUserId);
 
   return (
     <div className="min-h-screen bg-stone-50">
@@ -422,6 +553,9 @@ export default function DeckEditorPage() {
             <nav className="flex flex-wrap items-center gap-4 text-sm">
               <Link href="/dashboard" className="text-stone-600 hover:text-pstudy-primary">
                 {t("dashboard.myDecks")}
+              </Link>
+              <Link href="/school" className="text-stone-600 hover:text-pstudy-primary">
+                {t("dashboard.school")}
               </Link>
               <Link href="/community" className="text-stone-600 hover:text-pstudy-primary">
                 {t("dashboard.community")}
@@ -633,6 +767,136 @@ export default function DeckEditorPage() {
               </div>
             </details>
             )}
+            {orgMemberships.length > 0 ? (
+              <details
+                className="w-full max-w-3xl rounded border border-sky-200 bg-white px-3 py-2"
+                open={schoolPanelOpen}
+                onToggle={(e) => setSchoolPanelOpen(e.currentTarget.open)}
+              >
+                <summary className="cursor-pointer select-none text-sm font-medium text-sky-900 outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2">
+                  {t("school.sectionTitle")}
+                </summary>
+                <div className="mt-3 space-y-3 text-sm text-stone-700">
+                  <p className="m-0 text-stone-600">{t("school.sectionHint")}</p>
+                  {orgMemberships.length > 1 ? (
+                    <div>
+                      <label className="mb-1 block text-stone-600" htmlFor="school-org-select">
+                        {t("school.orgLabel")}
+                      </label>
+                      <select
+                        id="school-org-select"
+                        value={schoolOrgId}
+                        onChange={(e) => onSelectSchoolOrg(e.target.value)}
+                        className="w-full max-w-md rounded border border-stone-300 px-2 py-1.5 text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                      >
+                        {orgMemberships.map((m) => (
+                          <option key={m.organizationId} value={m.organizationId}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                  {schoolOrgId ? (
+                    <p className="text-xs text-stone-500">
+                      {t("school.yourRole", {
+                        role:
+                          orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role ?? "—",
+                      })}
+                    </p>
+                  ) : null}
+                  {isDeckOwner ? (
+                    <>
+                      <fieldset className="space-y-2 rounded-lg border border-stone-200 px-3 py-2">
+                        <legend className="px-1 text-xs font-medium text-stone-600">
+                          {t("school.shareVisibility")}
+                        </legend>
+                        <label className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="radio"
+                            name="school-vis"
+                            checked={schoolVisibilityChoice === "school"}
+                            onChange={() => setSchoolVisibilityChoice("school")}
+                            className="border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                          />
+                          {t("school.visibilitySchool")}
+                        </label>
+                        <label
+                          className={`flex items-center gap-2 ${
+                            orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role ===
+                            "student"
+                              ? "cursor-not-allowed opacity-60"
+                              : "cursor-pointer"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="school-vis"
+                            checked={schoolVisibilityChoice === "teachers_only"}
+                            disabled={
+                              orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role ===
+                              "student"
+                            }
+                            onChange={() => setSchoolVisibilityChoice("teachers_only")}
+                            title={t("school.roleRequiredTeachersOnly")}
+                            className="border-stone-300 text-pstudy-primary focus:ring-pstudy-primary disabled:opacity-50"
+                          />
+                          {t("school.visibilityTeachersOnly")}
+                        </label>
+                      </fieldset>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={schoolBusy || !schoolOrgId}
+                          onClick={() => void handleSaveSchoolShare()}
+                          className="btn-primary text-sm disabled:opacity-50"
+                        >
+                          {schoolBusy ? t("deck.saving") : t("school.saveShare")}
+                        </button>
+                        {schoolShare ? (
+                          <button
+                            type="button"
+                            disabled={schoolBusy}
+                            onClick={() => void handleRemoveSchoolShare()}
+                            className="btn-secondary text-sm disabled:opacity-50"
+                          >
+                            {t("school.removeShare")}
+                          </button>
+                        ) : null}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-stone-600">{t("school.ownerReadOnly")}</p>
+                  )}
+                  {schoolShare ? (
+                    <div className="rounded-md bg-stone-50 px-3 py-2 text-stone-700">
+                      {schoolShare.visibility === "school" && !schoolShare.verifiedAt ? (
+                        <p className="m-0">{t("school.studentsNeedVerification")}</p>
+                      ) : null}
+                      {schoolShare.visibility === "school" && schoolShare.verifiedAt ? (
+                        <p className="m-0 font-medium text-emerald-800">{t("school.verifiedBadge")}</p>
+                      ) : null}
+                      {schoolShare.visibility === "teachers_only" ? (
+                        <p className="m-0">{t("school.visibilityTeachersOnly")}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {schoolShare?.visibility === "school" &&
+                  !schoolShare.verifiedAt &&
+                  (orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role === "teacher" ||
+                    orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role === "admin") ? (
+                    <button
+                      type="button"
+                      disabled={schoolBusy}
+                      onClick={() => void handleVerifySchoolFromDeck()}
+                      className="btn-secondary text-sm disabled:opacity-50"
+                    >
+                      {t("school.verifyDeck")}
+                    </button>
+                  ) : null}
+                </div>
+              </details>
+            ) : null}
           </div>
         </div>
       </header>

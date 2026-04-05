@@ -211,6 +211,32 @@ Invite and “review complete” notifications use **Resend** when `RESEND_API_K
 
 ---
 
+## Step 4f: School / organization communities (optional)
+
+For **institution tenants** (orgs, roles, groups, school vs teachers-only deck sharing, teacher verification before students see school shares), run **`supabase/organization-schema.sql`** in the SQL Editor after **`supabase/publication-review.sql`** (and **`supabase/exam-schema.sql`**, since it references `decks`).
+
+**Bootstrap:** there is no self-serve “create organization” for end users in this v1 schema. Create the org and the **first admin** member using the **service role** or the SQL Editor (authenticated RLS cannot add the first admin). Example:
+
+```sql
+-- Replace names / UUIDs; run with a role that bypasses RLS (e.g. postgres).
+INSERT INTO organizations (name, slug, max_members)
+VALUES ('Demo School', 'demo-school', 100)
+RETURNING id;
+
+INSERT INTO organization_members (organization_id, user_id, role)
+VALUES ('<org id from above>', '<supabase auth.users.id>', 'admin');
+```
+
+The app UI for orgs is not wired yet; the database and RLS enforce the visibility rules for the next development slice.
+
+**If the dashboard stops loading your decks** (“Failed to load decks”) after enabling organizations, run **`supabase/organization-rls-recursion-fix.sql`** once. An early org RLS rule queried `deck_organization_shares` from `decks` in a way that could recurse; the fix uses a `SECURITY DEFINER` helper so reads work again.
+
+**School admin & email invitations:** run **`supabase/organization-invites.sql`** after `organization-schema.sql`. Invites are created via the PSTUDY app (service role); configure **Resend** (`RESEND_API_KEY`, `CONTACT_FROM_EMAIL`) so invitation emails send, same as the contact / deck-review flows.
+
+**School page says you’re not a member (but you ran the bootstrap `INSERT`):** run **`supabase/organization-members-select-rls-fix.sql`** once. The original SELECT policies on `organizations` / `organization_members` could block the browser from seeing your own membership row.
+
+---
+
 ## Step 5: Enable Email Sign-Up (Optional)
 
 By default, Supabase allows sign-up. To customize:

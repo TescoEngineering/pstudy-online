@@ -47,7 +47,7 @@ export default function DeckReviewPage() {
     } finally {
       setLoading(false);
     }
-  }, [tokenStr, toast, t]);
+  }, [tokenStr]);
 
   useEffect(() => {
     void load();

@@ -124,7 +124,7 @@ export async function fetchDeck(id: string): Promise<Deck | null> {
     .eq("deck_id", id)
     .order("order");
 
-  return dbDeckToDeck(deck, (items ?? []).map(dbItemToItem), false);
+  return dbDeckToDeck(deck, (items ?? []).map(dbItemToItem), true);
 }
 
 export type PublicDecksFilters = {
@@ -275,6 +275,53 @@ export async function duplicateOwnedDeck(
 
   const fresh = await fetchDeck(newDeck.id);
   return fresh ?? deckWithItems;
+}
+
+/**
+ * Copy any deck the current user can read (RLS) into their library.
+ * Use for school-shared decks; {@link copyDeckToMine} remains for public community only.
+ */
+export async function copyReadableDeckToMine(deckId: string): Promise<Deck> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not logged in");
+
+  const sourceDeck = await fetchDeck(deckId);
+  if (!sourceDeck) throw new Error("Deck not found");
+  if (sourceDeck.ownerId === user.id) throw new Error("This deck is already yours");
+
+  const newDeck = await createDeck(`Copy of ${sourceDeck.title}`);
+  const itemsWithNewIds: PStudyItem[] = sourceDeck.items.map((it) => ({
+    ...it,
+    id: crypto.randomUUID(),
+  }));
+  const deckWithItems: Deck = {
+    ...newDeck,
+    items: itemsWithNewIds,
+    fieldOfInterest: sourceDeck.fieldOfInterest,
+    topic: sourceDeck.topic,
+    contentLanguage: sourceDeck.contentLanguage ?? null,
+  };
+  await saveDeckWithItems(deckWithItems);
+  await supabase
+    .from("decks")
+    .update({
+      lineage_id: newDeck.id,
+      revision_number: 1,
+      publication_status: "draft",
+      review_status: "none",
+    })
+    .eq("id", newDeck.id);
+  const fresh = await fetchDeck(newDeck.id);
+  return (
+    fresh ?? {
+      ...deckWithItems,
+      publicationStatus: "draft" as const,
+      reviewStatus: "none" as const,
+      lineageId: newDeck.id,
+      revisionNumber: 1,
+    }
+  );
 }
 
 /** Copy a public deck to the current user's decks */

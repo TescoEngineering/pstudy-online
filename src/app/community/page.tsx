@@ -116,9 +116,12 @@ export default function CommunityPage() {
       <header className="border-b border-stone-200 bg-white">
         <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-4">
           <Logo size="sm" withText />
-          <nav className="flex items-center gap-4">
+          <nav className="flex flex-wrap items-center gap-4">
             <Link href="/dashboard" className="text-stone-600 hover:text-pstudy-primary">
               {t("dashboard.myDecks")}
+            </Link>
+            <Link href="/school" className="text-stone-600 hover:text-pstudy-primary">
+              {t("dashboard.school")}
             </Link>
             <Link href="/help" className="text-stone-600 hover:text-pstudy-primary">
               {t("help.nav")}

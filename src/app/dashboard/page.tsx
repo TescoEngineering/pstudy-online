@@ -171,6 +171,12 @@ export default function DashboardPage() {
               {t("dashboard.navAccount")}
             </Link>
             <Link
+              href="/school"
+              className="text-stone-600 hover:text-pstudy-primary"
+            >
+              {t("dashboard.school")}
+            </Link>
+            <Link
               href="/community"
               className="text-stone-600 hover:text-pstudy-primary"
             >
