@@ -98,10 +98,54 @@ export function validateDeckForStraightExam(
   return issues;
 }
 
+/**
+ * Compare straight answers with tolerance for speech and typing: case, whitespace,
+ * sentence punctuation (comma vs period, etc.), all Unicode space/separator variants,
+ * any Unicode dash (Saint‑Michel vs Saint-Michel), NFKC normalization (fullwidth
+ * punctuation, compatibility forms), and French place-name abbreviations st/ste →
+ * saint/sainte.
+ */
 export function normalizeLenientAnswer(s: string): string {
-  return String(s ?? "")
+  let raw = String(s ?? "")
+    .normalize("NFKC")
     .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .replace(/[.,;:!?]+$/g, "");
+    .toLowerCase();
+
+  // Cf stripping alone would glue words: Saint\u00ADMichel or Saint\u200bMichel → "saintmichel"
+  // (hyphen step never runs). Map common “invisible” breaks to real separators first.
+  raw = raw.replace(/\u00AD/g, "-");
+  raw = raw.replace(/\u200B/g, " ");
+  raw = raw.replace(/\u2060/g, " ");
+
+  // Other format / zero-width chars (Word, PDF, mobile paste)
+  raw = raw.replace(/\p{Cf}/gu, "");
+
+  // Every Unicode space separator → ASCII space (NBSP, narrow NBSP, figure space, …)
+  raw = raw.replace(/\p{Zs}+/gu, " ");
+
+  // Sentence punctuation + common fullwidth / alternate marks → space
+  raw = raw.replace(
+    /[.,;:!?…\uFF01\uFF0C\uFF0E\uFF1A\uFF1B\uFF1F\u037E\u00BF]+/g,
+    " "
+  );
+
+  // Any Unicode “dash punctuation” (hyphen-minus, NB hyphen, en dash, minus sign, …)
+  raw = raw.replace(/\p{Pd}+/gu, " ");
+
+  const t = collapseSpaces(raw);
+
+  return collapseSpaces(
+    t
+      .split(" ")
+      .map((tok) => {
+        if (tok === "st" || tok === "st.") return "saint";
+        if (tok === "ste" || tok === "ste.") return "sainte";
+        return tok;
+      })
+      .join(" ")
+  );
+}
+
+function collapseSpaces(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
 }

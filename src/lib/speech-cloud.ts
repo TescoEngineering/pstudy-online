@@ -152,21 +152,22 @@ export function startCloudListening(
       if (stopped) return;
       if (options.shouldIgnoreResults?.()) return;
 
-      let toApply = "";
-      if (transcript && chunkId >= lastAppliedSeq) {
-        lastAppliedSeq = chunkId;
-        toApply = transcript;
-      }
-
       /**
-       * Debug "Heard" line: prefer raw `heard`, else server `transcript`. Decoupled from
-       * `onResult` arg 1 (`toApply`) so the UI updates even when the answer box stays empty.
+       * Parallel chunk uploads can finish out of order. Ignore stale responses entirely so we
+       * don’t flash “Heard” from an old slice while passing `""` to onResult (answer never updates).
        */
+      if (chunkId < lastAppliedSeq) return;
+
       const heardLineForUi = (heard || transcript).trim();
+      const effectiveTranscript = (transcript || heardLineForUi).trim();
+      if (!effectiveTranscript) return;
+
+      lastAppliedSeq = chunkId;
+
       if (heardLineForUi) {
         options.onHeardLine?.(heardLineForUi);
       }
-      options.onResult(toApply, true);
+      options.onResult(effectiveTranscript, true);
     } catch (err) {
       if (stopped) return;
       const msg =

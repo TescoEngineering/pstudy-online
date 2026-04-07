@@ -18,7 +18,8 @@ import {
 import { Deck, PStudyItem } from "@/types/pstudy";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { createDeck, saveDeckWithItems } from "@/lib/supabase/decks";
+import { createDeck, deleteDeck, saveDeckWithItems } from "@/lib/supabase/decks";
+import { toError } from "@/lib/supabase/error-utils";
 import { useToast } from "@/components/Toast";
 
 /** Shared shell for .txt drop / paste / browse (Import section and AI empty state). */
@@ -85,14 +86,21 @@ async function doImport(
       items: itemsWithIds,
     };
 
-    await saveDeckWithItems(deckWithItems);
+    try {
+      await saveDeckWithItems(deckWithItems);
+    } catch (saveErr) {
+      await deleteDeck(newDeck.id).catch(() => {});
+      throw saveErr;
+    }
     router.push(`/deck/${newDeck.id}`);
     return { ok: true };
   } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : "Import failed",
-    };
+    const e = toError(err);
+    let msg = e.message;
+    if (/keywords/i.test(msg) && /column|schema cache|does not exist/i.test(msg)) {
+      msg = `${msg} — Run supabase/items-add-keywords.sql in the Supabase SQL editor (adds the keywords column).`;
+    }
+    return { ok: false, error: msg };
   }
 }
 
@@ -132,25 +140,41 @@ export default function ImportPage() {
       setMessage(null);
       const result = await doImport(text, router);
       if (!result.ok) {
-        setMessage({ type: "err", text: result.error ?? "Import failed" });
+        const errText = result.error ?? "Import failed";
+        setMessage({ type: "err", text: errText });
+        toastError(errText);
       }
       setImporting(false);
     },
-    [router]
+    [router, toastError]
   );
 
   const handleFile = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
+      const name = file.name.toLowerCase();
+      if (!name.endsWith(".txt") && file.type !== "text/plain") {
+        setMessage({
+          type: "err",
+          text: t("import.fileMustBeTxt"),
+        });
+        toastError(t("import.fileMustBeTxt"));
+        e.target.value = "";
+        return;
+      }
       const reader = new FileReader();
+      reader.onerror = () => {
+        setMessage({ type: "err", text: t("import.fileReadError") });
+        toastError(t("import.fileReadError"));
+      };
       reader.onload = () => {
         handleImport(String(reader.result ?? ""));
       };
       reader.readAsText(file, "UTF-8");
       e.target.value = "";
     },
-    [handleImport]
+    [handleImport, toastError, t]
   );
 
   const handlePaste = useCallback(
@@ -166,17 +190,24 @@ export default function ImportPage() {
     (e: React.DragEvent) => {
       e.preventDefault();
       const file = e.dataTransfer.files?.[0];
-      if (!file || !file.name.endsWith(".txt")) {
-        setMessage({ type: "err", text: "Please drop a .txt file." });
+      const name = file?.name.toLowerCase() ?? "";
+      if (!file || (!name.endsWith(".txt") && file.type !== "text/plain")) {
+        const msg = t("import.dropTxtOnly");
+        setMessage({ type: "err", text: msg });
+        toastError(msg);
         return;
       }
       const reader = new FileReader();
+      reader.onerror = () => {
+        setMessage({ type: "err", text: t("import.fileReadError") });
+        toastError(t("import.fileReadError"));
+      };
       reader.onload = () => {
         handleImport(String(reader.result ?? ""));
       };
       reader.readAsText(file, "UTF-8");
     },
-    [handleImport]
+    [handleImport, toastError, t]
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {

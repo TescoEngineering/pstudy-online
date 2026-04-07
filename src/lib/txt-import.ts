@@ -107,7 +107,9 @@ export interface ImportResult {
 export function parsePStudyTxt(text: string): ImportResult {
   const errors: string[] = [];
   const items: PStudyItem[] = [];
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  // Strip UTF-8 BOM so the first column parses (some editors add BOM to .txt).
+  const normalized = text.replace(/^\uFEFF/, "");
+  const lines = normalized.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   let wasExamFile = false;
   let index = 0;
   let base64PictureCount = 0;

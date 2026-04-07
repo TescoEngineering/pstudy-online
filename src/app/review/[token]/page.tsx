@@ -291,6 +291,11 @@ export default function DeckReviewPage() {
                       placeholder={t("deck.questionPlaceholder")}
                       compactClassName="w-full min-w-[8rem]"
                       saveOnEnter={false}
+                      keywordTagging={{
+                        keywords: item.keywords ?? "",
+                        onKeywordsChange: (next) =>
+                          updateItem(i, { ...item, keywords: next }),
+                      }}
                     />
                   </td>
                   <td className="p-2">

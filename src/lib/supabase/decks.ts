@@ -437,32 +437,30 @@ export async function mergeDecksIntoNew(sourceDeckIdsInOrder: string[], title: s
 
 export async function createDeck(title: string = "Untitled deck"): Promise<Deck> {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) throw new Error("Not logged in");
 
+  // After publication-review.sql, lineage_id (and related columns) are NOT NULL. We must set them on INSERT;
+  // the server cannot use DEFAULT id for lineage_id, so we generate the primary key here.
+  const id = crypto.randomUUID();
   const { data: deck, error } = await supabase
     .from("decks")
     .insert({
+      id,
       owner_id: user.id,
       title,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  const id = deck.id as string;
-  const { error: uErr } = await supabase
-    .from("decks")
-    .update({
       lineage_id: id,
       revision_number: 1,
       publication_status: "draft",
       review_status: "none",
     })
-    .eq("id", id);
-  if (uErr) throw uErr;
-  const { data: row } = await supabase.from("decks").select("*").eq("id", id).single();
-  return dbDeckToDeck((row ?? deck) as DbDeck, [], false);
+    .select()
+    .single();
+
+  if (error) throw error;
+  return dbDeckToDeck(deck as DbDeck, [], false);
 }
 
 export async function updateDeck(
@@ -512,7 +510,7 @@ export async function saveDeckWithItems(deck: Deck): Promise<void> {
     throw new Error(DECK_CHECKED_READONLY);
   }
 
-  await supabase
+  const { error: deckUpErr } = await supabase
     .from("decks")
     .update({
       title: deck.title,
@@ -523,6 +521,7 @@ export async function saveDeckWithItems(deck: Deck): Promise<void> {
       ...(deck.contentLanguage !== undefined && { content_language: deck.contentLanguage }),
     })
     .eq("id", deck.id);
+  if (deckUpErr) throw deckUpErr;
 
   const { data: existing } = await supabase
     .from("items")
@@ -548,13 +547,15 @@ export async function saveDeckWithItems(deck: Deck): Promise<void> {
     };
 
     if (existingIds.has(item.id)) {
-      await supabase.from("items").update(row).eq("id", item.id);
+      const { error: upErr } = await supabase.from("items").update(row).eq("id", item.id);
+      if (upErr) throw upErr;
     } else {
-      const { data: inserted } = await supabase
+      const { data: inserted, error: insErr } = await supabase
         .from("items")
         .insert({ ...row, id: item.id })
         .select("id")
         .single();
+      if (insErr) throw insErr;
       if (inserted) existingIds.add(inserted.id);
     }
   }
