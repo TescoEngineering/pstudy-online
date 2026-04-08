@@ -9,6 +9,8 @@ import {
   splitLineForKeywordCloze,
   buildKeywordClozeScaffoldAnswerText,
   transcriptCompletesKeywordCloze,
+  appendSpeechTranscriptChunk,
+  buildProgressiveKeywordClozeAnswerFromSpeech,
   KEYWORD_CLOZE_GAP_MARKER,
 } from "./flashcard";
 
@@ -128,5 +130,48 @@ describe("transcriptCompletesKeywordCloze", () => {
     expect(
       transcriptCompletesKeywordCloze("the capital is Lyon", "The capital is Paris.", "Paris")
     ).toBeNull();
+  });
+});
+
+describe("appendSpeechTranscriptChunk", () => {
+  it("returns piece when prev empty", () => {
+    expect(appendSpeechTranscriptChunk("", "First.")).toBe("First.");
+  });
+
+  it("appends a second sentence", () => {
+    expect(appendSpeechTranscriptChunk("First.", "Second.")).toBe("First. Second.");
+  });
+
+  it("uses longer cumulative final instead of duplicating", () => {
+    expect(appendSpeechTranscriptChunk("Hello.", "Hello. World.")).toBe("Hello. World.");
+  });
+});
+
+describe("buildProgressiveKeywordClozeAnswerFromSpeech", () => {
+  it("fills only the sentence spoken correctly with keywords; other sentence keeps gaps", () => {
+    const exp = "Bonjour. Paris est magnifique.";
+    const kw = "Paris";
+    const spoken = "Bonjour.";
+    const out = buildProgressiveKeywordClozeAnswerFromSpeech(exp, kw, spoken);
+    expect(out).toContain("Bonjour.");
+    expect(out).toContain(KEYWORD_CLOZE_GAP_MARKER);
+    expect(out).not.toContain("Paris");
+  });
+
+  it("fills second sentence when only second is spoken; no-keyword hint stays visible", () => {
+    const exp = "Bonjour. Paris est magnifique.";
+    const kw = "Paris";
+    const spoken = "Paris est magnifique.";
+    const out = buildProgressiveKeywordClozeAnswerFromSpeech(exp, kw, spoken);
+    expect(out).toContain("Paris est magnifique.");
+    expect(out).toContain("Bonjour");
+    expect(out).not.toContain(KEYWORD_CLOZE_GAP_MARKER);
+  });
+
+  it("returns full expected when whole answer validated", () => {
+    const exp = "Bonjour. Paris est magnifique.";
+    const kw = "Paris";
+    const spoken = "Bonjour. Paris est magnifique.";
+    expect(buildProgressiveKeywordClozeAnswerFromSpeech(exp, kw, spoken)).toBe(exp);
   });
 });

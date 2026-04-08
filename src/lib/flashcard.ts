@@ -254,6 +254,158 @@ function isPunctuationOnlyChunk(chunk: string): boolean {
 }
 
 /**
+ * Append a new final STT segment to prior accumulated speech. Handles engines that emit one
+ * final per sentence vs. a longer cumulative final, so multi-sentence answers can be built up.
+ */
+export function appendSpeechTranscriptChunk(prevAccum: string, piece: string): string {
+  const a = prevAccum.trim();
+  const b = piece.trim();
+  if (!b) return a;
+  if (!a) return b;
+  if (b === a) return a;
+  if (b.startsWith(a)) return b;
+  if (a.startsWith(b)) return a;
+  const collapse = (s: string) => s.replace(/\s+/gu, " ").trim();
+  const ca = collapse(a);
+  const cb = collapse(b);
+  if (cb.startsWith(ca)) return b;
+  if (ca.startsWith(cb)) return a;
+  const needSpace =
+    !/\s$/u.test(a) &&
+    !/^\s/u.test(b) &&
+    !/^[,.;:!?]/u.test(b) &&
+    !/[-—–]$/u.test(a);
+  return needSpace ? `${a} ${b}` : `${a}${b}`;
+}
+
+/**
+ * One speakable sentence (or single-line) slice of the expected answer for progressive cloze.
+ */
+export type KeywordClozeSpeechUnit = {
+  official: string;
+  scaffold: string;
+  keywordsCsv: string;
+  /** Prefix before this unit: "", space, newline + optional bullet. */
+  leading: string;
+};
+
+/** Split a paragraph line into sentence-like slices after . ! ? … */
+export function splitAnswerIntoSpeechClozeSentences(text: string): string[] {
+  const t = String(text ?? "").trim();
+  if (!t) return [];
+  const parts = t.split(/(?<=[.!?…]+)\s+/u).filter((x) => x.trim().length > 0);
+  return parts.length ? parts.map((p) => p.trim()) : [t];
+}
+
+function keywordsCsvAppearingInText(sentence: string, rawKeywords: string): string {
+  const tags = splitKeywordTagsForHighlight(rawKeywords);
+  if (!tags.length) return "";
+  const low = sentence.toLowerCase();
+  return tags.filter((k) => low.includes(k.toLowerCase())).join(",");
+}
+
+/**
+ * Flatten the card answer into ordered units, each with official text, scaffold (___ gaps), and
+ * which keywords appear in that unit (for per-sentence STT validation).
+ */
+export function buildKeywordClozeSpeechUnits(
+  answerText: string,
+  rawKeywords: string
+): KeywordClozeSpeechUnit[] {
+  const tags = splitKeywordTagsForHighlight(rawKeywords);
+  const raw = String(answerText ?? "").trim();
+  if (!tags.length || !raw) return [];
+
+  const scaffoldLine = (line: string): string => {
+    const parts = splitLineForKeywordCloze(line, tags);
+    return parts.map((p) => (p.type === "text" ? p.value : KEYWORD_CLOZE_GAP_MARKER)).join("");
+  };
+
+  const units: KeywordClozeSpeechUnit[] = [];
+  const segs = parseFlashcardRevealSegments(raw);
+
+  const pushBody = (
+    body: string,
+    segType: "bullet" | "paragraph",
+    newlineBefore: boolean
+  ) => {
+    const sentences = splitAnswerIntoSpeechClozeSentences(body);
+    for (let j = 0; j < sentences.length; j++) {
+      const sent = sentences[j]!.trim();
+      if (!sent) continue;
+      let leading = "";
+      if (units.length === 0) {
+        leading = segType === "bullet" ? "- " : "";
+      } else if (j === 0) {
+        leading = (newlineBefore ? "\n" : "") + (segType === "bullet" ? "- " : "");
+      } else {
+        leading = " ";
+      }
+      const kws = keywordsCsvAppearingInText(sent, rawKeywords);
+      const tagsHere = splitKeywordTagsForHighlight(kws);
+      // Sentences with no keyword tags stay visible as hints; only keyword-bearing sentences use ___.
+      const scaffold = tagsHere.length > 0 ? scaffoldLine(sent) : sent;
+      units.push({
+        official: sent,
+        scaffold,
+        keywordsCsv: kws,
+        leading,
+      });
+    }
+  };
+
+  if (segs.length === 0) {
+    pushBody(raw, "paragraph", false);
+    return units;
+  }
+
+  for (let si = 0; si < segs.length; si++) {
+    pushBody(
+      segs[si]!.text,
+      segs[si]!.type === "bullet" ? "bullet" : "paragraph",
+      si > 0
+    );
+  }
+  return units;
+}
+
+/**
+ * Keyword cloze + speech: keep ___ only inside keyword-bearing sentences until validated.
+ * Sentences without keywords are always shown in full as hints (same as line-scaffold text).
+ */
+export function buildProgressiveKeywordClozeAnswerFromSpeech(
+  answerText: string,
+  rawKeywords: string,
+  spokenCombined: string
+): string {
+  const raw = String(answerText ?? "").trim();
+  const spoken = String(spokenCombined ?? "").trim();
+  const units = buildKeywordClozeSpeechUnits(answerText, rawKeywords);
+  if (!units.length) return spoken;
+
+  const fullDone = transcriptCompletesKeywordCloze(spoken, raw, rawKeywords);
+  if (fullDone) return fullDone;
+
+  let allMatched = true;
+  let out = "";
+  for (const u of units) {
+    const tagList = splitKeywordTagsForHighlight(u.keywordsCsv);
+    let matched = false;
+    if (!tagList.length) {
+      const no = normalizeLenientAnswer(u.official);
+      const ns = normalizeLenientAnswer(spoken);
+      matched = no.length > 0 && ns.includes(no);
+    } else {
+      matched = transcriptCompletesKeywordCloze(spoken, u.official, u.keywordsCsv) != null;
+    }
+    if (!matched) allMatched = false;
+    out += u.leading + (matched ? u.official : u.scaffold);
+  }
+  if (allMatched && units.length > 0) return raw;
+  return out;
+}
+
+/**
  * If the user spoke the full expected answer (or all literal chunks + all keywords in order),
  * return canonical `expected`; otherwise null. Used so STT does not replace the scaffold with
  * keyword-only fragments when “Consider only deck answers” / vocabulary hints distort the line.

@@ -30,8 +30,10 @@ import {
   parseFlashcardRevealSegments,
   splitKeywordTags,
   splitKeywordTagsForHighlight,
-  buildKeywordClozeScaffoldAnswerText,
   transcriptCompletesKeywordCloze,
+  appendSpeechTranscriptChunk,
+  buildProgressiveKeywordClozeAnswerFromSpeech,
+  KEYWORD_CLOZE_GAP_MARKER,
 } from "@/lib/flashcard";
 import { FlashcardKeywordHighlight } from "@/components/FlashcardKeywordHighlight";
 import { KeywordClozeAnswerPrompt } from "@/components/KeywordClozeAnswerPrompt";
@@ -41,6 +43,7 @@ import {
   setItemKnown,
 } from "@/lib/deck-known-cards";
 import { normalizeLenientAnswer } from "@/lib/exam-validation";
+import { diffGivenVsExpected } from "@/lib/answer-diff";
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -253,6 +256,8 @@ export default function PracticePage() {
   promptModeRef.current = promptMode;
   const currentItemRef = useRef<PStudyItem | undefined>(undefined);
   const keywordClozeSeedKeyRef = useRef("");
+  /** Keyword cloze + Speak: chain final STT segments (multi-sentence) before validating. */
+  const keywordClozeSpeakAccumRef = useRef("");
 
   const bumpListenGeneration = useCallback(() => {
     listenSeqRef.current++;
@@ -449,6 +454,29 @@ export default function PracticePage() {
   const displayCard: PStudyItem | undefined =
     showResult && resultCardItem ? resultCardItem : current;
 
+  const hiddenSideCorrect = useMemo(() => {
+    const card = displayCard ?? current;
+    if (!card) return "";
+    return promptMode === "description"
+      ? String(card.description ?? "")
+      : String(card.explanation ?? "");
+  }, [displayCard, current, promptMode]);
+
+  const expectedOfficialStr = useMemo(
+    () => hiddenSideCorrect.trim(),
+    [hiddenSideCorrect]
+  );
+
+  const resultAnswerDiffSegments = useMemo(() => {
+    if (!showResult) return [];
+    return diffGivenVsExpected(answer, expectedOfficialStr);
+  }, [showResult, answer, expectedOfficialStr]);
+
+  const isResultCorrect = useMemo(
+    () => normalizeAnswer(answer) === normalizeAnswer(expectedOfficialStr),
+    [answer, expectedOfficialStr]
+  );
+
   const flashcardKeywordTags = useMemo(() => {
     const card = displayCard ?? current;
     return card ? splitKeywordTagsForHighlight(String(card.keywords ?? "")) : [];
@@ -467,8 +495,13 @@ export default function PracticePage() {
     const key = `${current.id}\0${promptMode}\0${keywordClozeMode}`;
     if (keywordClozeSeedKeyRef.current === key) return;
     keywordClozeSeedKeyRef.current = key;
+    keywordClozeSpeakAccumRef.current = "";
     setAnswer(
-      buildKeywordClozeScaffoldAnswerText(trimmed, String(current.keywords ?? ""))
+      buildProgressiveKeywordClozeAnswerFromSpeech(
+        trimmed,
+        String(current.keywords ?? ""),
+        ""
+      )
     );
   }, [
     current?.id,
@@ -641,32 +674,47 @@ export default function PracticePage() {
             ? String(card.description ?? "").trim()
             : String(card.explanation ?? "").trim();
         if (tags.length && expected) {
+          const piece = newTranscript.trim();
+          if (!piece) return;
+
+          const fieldNow = answerRef.current.trim();
+          const hasScaffold = fieldNow.includes(KEYWORD_CLOZE_GAP_MARKER);
+
+          let prevAccum = keywordClozeSpeakAccumRef.current.trim();
+          if (hasScaffold) {
+            prevAccum = "";
+          } else if (!prevAccum && fieldNow) {
+            prevAccum = fieldNow;
+          }
+
+          const combined = appendSpeechTranscriptChunk(prevAccum, piece);
+          keywordClozeSpeakAccumRef.current = combined;
+
           const completed = transcriptCompletesKeywordCloze(
-            newTranscript,
+            combined,
             expected,
             String(card.keywords ?? "")
           );
           if (completed) {
             setAnswer(completed);
+            keywordClozeSpeakAccumRef.current = "";
             return;
           }
-          /**
-           * `transcriptCompletesKeywordCloze` can return null even when the user said the full
-           * line (chunk/loose-match edge cases). The heard-debug line still updates, so don’t
-           * leave the scaffold stuck. Accept a sufficiently long final transcript; skip short
-           * fragments so we don’t replace the scaffold with keyword-only STT junk.
-           */
-          const expLen = expected.trim().length;
-          const trLen = newTranscript.trim().length;
-          const longEnoughForFullLine =
-            expLen > 0 &&
-            trLen >= Math.min(expLen, Math.max(12, Math.floor(expLen * 0.5)));
-          if (longEnoughForFullLine) {
-            setAnswer(newTranscript);
-            return;
-          }
+          setAnswer(
+            buildProgressiveKeywordClozeAnswerFromSpeech(
+              expected,
+              String(card.keywords ?? ""),
+              combined
+            )
+          );
+          /** Wrong or partial: only swap ___ for sentences that validate against accumulated speech. */
           return;
         }
+        /**
+         * Keyword cloze on but this card has no eligible tags — don’t run generic merge (would
+         * paste raw STT and wipe any scaffold).
+         */
+        return;
       }
 
       if (
@@ -932,7 +980,10 @@ export default function PracticePage() {
 
   const checkAnswer = useCallback(
     (userAnswer: string) => {
-      if (!current) return;
+      if (!current) {
+        answerCheckPendingRef.current = false;
+        return;
+      }
       const expected =
         promptMode === "description" ? current.description : current.explanation;
       const expectedStr = String(expected ?? "").trim();
@@ -983,6 +1034,10 @@ export default function PracticePage() {
           speak(`Incorrect; the correct answer was ${expectedStr}`, speechLang);
         }
       }
+
+      // Repeat-mistakes correct path leaves showResult false, so the showResult effect never
+      // cleared this — handleEnd would then refuse to restart the mic after silence/session end.
+      answerCheckPendingRef.current = false;
     },
     [current, displayIndex, promptMode, repeatMistakesMode, list.length, correct, wrong, originalTotal, total, id, router, listenMode, speechLang]
   );
@@ -1001,6 +1056,7 @@ export default function PracticePage() {
       ttsAfterListenTimerRef.current = null;
     }
     stopSpeaking();
+    keywordClozeSpeakAccumRef.current = "";
     setAnswer("");
     setShowResult(false);
     setResultCardItem(null);
@@ -1051,6 +1107,7 @@ export default function PracticePage() {
     stopListeningRef.current?.();
     setIsListening(false);
     stopListeningRef.current = null;
+    keywordClozeSpeakAccumRef.current = "";
     setAnswer("");
     setShowResult(false);
     setResultCardItem(null);
@@ -1134,6 +1191,7 @@ export default function PracticePage() {
 
   const handleEnterToCheck = useCallback(() => {
     answerCheckPendingRef.current = true;
+    keywordClozeSpeakAccumRef.current = "";
     bumpListenGeneration();
     if (ttsAfterListenTimerRef.current) {
       clearTimeout(ttsAfterListenTimerRef.current);
@@ -1258,10 +1316,6 @@ export default function PracticePage() {
     promptMode === "description"
       ? String(activeCard.explanation ?? "")
       : String(activeCard.description ?? "");
-  const hiddenSideCorrect =
-    promptMode === "description"
-      ? String(activeCard.description ?? "")
-      : String(activeCard.explanation ?? "");
 
   return (
     <div className="min-h-screen bg-stone-50">
@@ -1742,6 +1796,13 @@ export default function PracticePage() {
                       onChange={(e) => {
                         const newVal = e.target.value;
                         setAnswer(newVal);
+                        if (keywordClozeMode && mode === "straight") {
+                          keywordClozeSpeakAccumRef.current = newVal.includes(
+                            KEYWORD_CLOZE_GAP_MARKER
+                          )
+                            ? ""
+                            : newVal;
+                        }
                         if (speakMode && newVal === "" && stopListeningRef.current) {
                           stopListeningRef.current();
                           startSpeakListening();
@@ -2002,37 +2063,61 @@ export default function PracticePage() {
           </>
         ) : (
           <div className="space-y-4">
-          <div
-            className={`rounded-lg border-2 p-4 ${
-                normalizeAnswer(answer) ===
-                normalizeAnswer(
-                  promptMode === "description"
-                    ? activeCard.description
-                    : activeCard.explanation
-                )
+            <div
+              className={`rounded-lg border-2 p-4 ${
+                isResultCorrect
                   ? "border-green-500 bg-green-50"
                   : "border-red-400 bg-red-50"
               }`}
             >
               <p className="font-medium">
-                {normalizeAnswer(answer) ===
-                normalizeAnswer(
-                  promptMode === "description"
-                    ? activeCard.description
-                    : activeCard.explanation
-                )
-                  ? t("common.correct")
-                  : t("common.incorrect")}
+                {isResultCorrect ? t("common.correct") : t("common.incorrect")}
               </p>
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-stone-700">
-                <span>
-                  {t("common.answer")}:{" "}
-                  <strong>
-                    {promptMode === "description"
-                      ? activeCard.description
-                      : activeCard.explanation}
-                  </strong>
-                </span>
+
+              <div className="mt-3 space-y-1">
+                <p className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                  {t("practice.reviewYourAnswer")}
+                </p>
+                <div
+                  role="group"
+                  aria-label={t("practice.reviewYourAnswer")}
+                  className="min-h-[3rem] whitespace-pre-wrap break-words rounded-lg border border-stone-300 bg-white px-4 py-3 text-lg leading-relaxed text-stone-900 shadow-sm"
+                >
+                  {resultAnswerDiffSegments.length === 0 ? (
+                    <span className="text-stone-400">—</span>
+                  ) : (
+                    resultAnswerDiffSegments.map((seg, idx) => (
+                      <span
+                        key={idx}
+                        className={
+                          seg.ok
+                            ? ""
+                            : "rounded bg-red-200/90 px-0.5 text-red-950 ring-1 ring-red-300/60"
+                        }
+                      >
+                        {seg.text}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {!isResultCorrect && (
+                <div className="mt-4 space-y-1 border-t border-red-200/80 pt-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-stone-600">
+                    {t("practice.correctAnswerBelow")}
+                  </p>
+                  <p className="whitespace-pre-wrap break-words text-lg font-semibold leading-relaxed text-stone-900">
+                    {expectedOfficialStr}
+                  </p>
+                </div>
+              )}
+
+              <div
+                className={`mt-3 flex flex-wrap items-center gap-2 text-stone-700 ${
+                  isResultCorrect ? "border-t border-green-200/80 pt-3" : ""
+                }`}
+              >
                 <button
                   type="button"
                   onClick={handleListenAnswer}

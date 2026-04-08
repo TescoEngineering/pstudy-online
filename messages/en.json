@@ -245,6 +245,8 @@
     "listenToQuestion": "Listen to question",
     "listenToAnswer": "Listen to answer",
     "yourAnswer": "Your answer (Enter, Go, or Check below)",
+    "reviewYourAnswer": "Your answer",
+    "correctAnswerBelow": "Correct answer",
     "checkAnswer": "Check answer",
     "mcSelectThenConfirm": "Select an option, then tap Check answer or press Enter to submit.",
     "listening": "Listening",

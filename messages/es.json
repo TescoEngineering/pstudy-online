@@ -143,6 +143,8 @@
     "listenToQuestion": "Escuchar pregunta",
     "listenToAnswer": "Escuchar respuesta",
     "yourAnswer": "Tu respuesta (Enter para comprobar)",
+    "reviewYourAnswer": "Tu respuesta",
+    "correctAnswerBelow": "Respuesta correcta",
     "listening": "Escuchando",
     "speakOn": "Hablar activo",
     "revealAnswer": "Mostrar respuesta (Enter)",

@@ -157,6 +157,8 @@
     "listenToQuestion": "Frage anhören",
     "listenToAnswer": "Antwort anhören",
     "yourAnswer": "Ihre Antwort (Enter zum Prüfen)",
+    "reviewYourAnswer": "Ihre Antwort",
+    "correctAnswerBelow": "Richtige Antwort",
     "listening": "Höre zu",
     "speakOn": "Sprechen an",
     "revealAnswer": "Antwort anzeigen (Enter)",
