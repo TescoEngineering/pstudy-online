@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
 
   if (insErr) {
     if (insErr.code === "23505") {
-      return bad("You are already a member of this school.");
+      return bad("You are already a member of this organization.");
     }
     if (insErr.message?.includes("member limit")) {
       return bad(insErr.message);

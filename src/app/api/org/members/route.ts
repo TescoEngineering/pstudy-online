@@ -128,7 +128,7 @@ export async function DELETE(request: NextRequest) {
   if ((targetRow.role as string) === "admin") {
     const n = await countAdminsInOrg(admin, organizationId);
     if (n <= 1) {
-      return bad("Cannot remove the last admin for this school.");
+      return bad("Cannot remove the last admin for this organization.");
     }
   }
 

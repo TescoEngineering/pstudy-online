@@ -372,14 +372,20 @@ export function buildKeywordClozeSpeechUnits(
 /**
  * Keyword cloze + speech: keep ___ only inside keyword-bearing sentences until validated.
  * Sentences without keywords are always shown in full as hints (same as line-scaffold text).
+ *
+ * @param currentAnswerBox — optional current field text before this update. When STT sends only
+ *   a later sentence, `spokenCombined` may not include earlier sentences; any unit already
+ *   validated in the box stays complete (official text), not reverted to scaffold.
  */
 export function buildProgressiveKeywordClozeAnswerFromSpeech(
   answerText: string,
   rawKeywords: string,
-  spokenCombined: string
+  spokenCombined: string,
+  currentAnswerBox?: string
 ): string {
   const raw = String(answerText ?? "").trim();
   const spoken = String(spokenCombined ?? "").trim();
+  const field = String(currentAnswerBox ?? "").trim();
   const units = buildKeywordClozeSpeechUnits(answerText, rawKeywords);
   if (!units.length) return spoken;
 
@@ -394,9 +400,15 @@ export function buildProgressiveKeywordClozeAnswerFromSpeech(
     if (!tagList.length) {
       const no = normalizeLenientAnswer(u.official);
       const ns = normalizeLenientAnswer(spoken);
-      matched = no.length > 0 && ns.includes(no);
+      const nf = field ? normalizeLenientAnswer(field) : "";
+      matched =
+        no.length > 0 &&
+        (ns.includes(no) || (field.length > 0 && nf.includes(no)));
     } else {
-      matched = transcriptCompletesKeywordCloze(spoken, u.official, u.keywordsCsv) != null;
+      matched =
+        transcriptCompletesKeywordCloze(spoken, u.official, u.keywordsCsv) != null ||
+        (field.length > 0 &&
+          transcriptCompletesKeywordCloze(field, u.official, u.keywordsCsv) != null);
     }
     if (!matched) allMatched = false;
     out += u.leading + (matched ? u.official : u.scaffold);
@@ -406,9 +418,11 @@ export function buildProgressiveKeywordClozeAnswerFromSpeech(
 }
 
 /**
- * If the user spoke the full expected answer (or all literal chunks + all keywords in order),
- * return canonical `expected`; otherwise null. Used so STT does not replace the scaffold with
- * keyword-only fragments when “Consider only deck answers” / vocabulary hints distort the line.
+ * If the user spoke the full expected answer, return canonical `expected` (card punctuation
+ * and capitalization). Otherwise, if **every** keyword for this sentence appears in the transcript
+ * (under {@link normalizeLenientAnswer}), accept even when literal wording is not in order —
+ * still returns canonical `expected`. Literal chunks are matched in sequence when possible;
+ * when a chunk cannot be found but all keywords are already present, the sentence is completed.
  */
 export function transcriptCompletesKeywordCloze(
   transcript: string,
@@ -424,19 +438,24 @@ export function transcriptCompletesKeywordCloze(
   const tags = splitKeywordTagsForHighlight(rawKeywords);
   if (!tags.length) return null;
 
-  const trLow = tr.toLowerCase();
+  const trNorm = normalizeLenientAnswer(tr);
   for (const tag of tags) {
-    if (!trLow.includes(tag.toLowerCase())) return null;
+    const tn = normalizeLenientAnswer(tag);
+    if (!tn) continue;
+    if (!trNorm.includes(tn)) return null;
   }
 
-  let remain = normalizeKeywordClozeLoose(tr);
+  let remain = trNorm;
   for (const ch of collectKeywordClozeLiteralChunks(exp, rawKeywords)) {
     if (isPunctuationOnlyChunk(ch)) continue;
-    const n = normalizeKeywordClozeLoose(ch);
+    const n = normalizeLenientAnswer(ch);
     if (!n) continue;
     const idx = remain.indexOf(n);
-    if (idx < 0) return null;
-    remain = remain.slice(idx + n.length);
+    if (idx < 0) {
+      /** Keywords already verified above — fill canonical line even if literals are out of order. */
+      return exp;
+    }
+    remain = remain.slice(idx + n.length).replace(/^\s+/u, "");
   }
   return exp;
 }

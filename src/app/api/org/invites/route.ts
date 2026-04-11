@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       .eq("user_id", existingId)
       .maybeSingle();
     if (mem) {
-      return bad("This person is already a member of the school.");
+      return bad("This person is already a member of the organization.");
     }
   }
 
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     .eq("id", organizationId)
     .single();
 
-  const orgName = orgRow?.name ?? "your school";
+  const orgName = orgRow?.name ?? "your organization";
 
   const { error: insErr } = await admin.from("organization_invites").insert({
     organization_id: organizationId,

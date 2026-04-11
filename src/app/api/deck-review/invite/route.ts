@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
 
   if (dErr || !deck) return bad("Deck not found", 404);
   if (deck.owner_id !== user.id) return bad("Not allowed", 403);
-  if (!deck.is_public) return bad("Share the deck with the community before requesting a review");
+  if (!deck.is_public) return bad("Share the deck with PstudyCommunity before requesting a review");
   if (deck.publication_status === "checked") return bad("This deck is already marked as checked");
   if (deck.publication_status === "superseded") return bad("This edition is no longer active");
 

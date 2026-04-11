@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
       const subject = `PSTUDY: your deck “${deck.title}” is now checked`;
       const text = [
         `Your shared deck “${deck.title}” was reviewed by ${user.email}.`,
-        "Its community quality status is now checked (peer-verified).",
+        "It is now marked as checked on PstudyCommunity (peer-verified).",
         "",
         "Open your deck:",
         deckUrl,

@@ -36,14 +36,13 @@ import {
   KEYWORD_CLOZE_GAP_MARKER,
 } from "@/lib/flashcard";
 import { FlashcardKeywordHighlight } from "@/components/FlashcardKeywordHighlight";
-import { KeywordClozeAnswerPrompt } from "@/components/KeywordClozeAnswerPrompt";
 import {
   countKnownInDeck,
   isItemKnown,
   setItemKnown,
 } from "@/lib/deck-known-cards";
 import { normalizeLenientAnswer } from "@/lib/exam-validation";
-import { diffGivenVsExpected } from "@/lib/answer-diff";
+import { diffGivenVsExpected, diffGivenVsExpectedWordAware } from "@/lib/answer-diff";
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -258,6 +257,11 @@ export default function PracticePage() {
   const keywordClozeSeedKeyRef = useRef("");
   /** Keyword cloze + Speak: chain final STT segments (multi-sentence) before validating. */
   const keywordClozeSpeakAccumRef = useRef("");
+  /**
+   * Repeat-mistakes round: on a **correct** answer we show the result pane first; `next()` removes
+   * this card id from the list (wrong answers still requeue the item inside checkAnswer).
+   */
+  const repeatMistakesRemoveCorrectIdRef = useRef<string | null>(null);
 
   const bumpListenGeneration = useCallback(() => {
     listenSeqRef.current++;
@@ -467,15 +471,24 @@ export default function PracticePage() {
     [hiddenSideCorrect]
   );
 
-  const resultAnswerDiffSegments = useMemo(() => {
-    if (!showResult) return [];
-    return diffGivenVsExpected(answer, expectedOfficialStr);
-  }, [showResult, answer, expectedOfficialStr]);
-
   const isResultCorrect = useMemo(
     () => normalizeAnswer(answer) === normalizeAnswer(expectedOfficialStr),
     [answer, expectedOfficialStr]
   );
+
+  const resultAnswerDiffSegments = useMemo(() => {
+    if (!showResult) return [];
+    /** Straight + Speak + graded correct: show the transcript without char-level diff (punctuation / case) — not meaningful for speech. */
+    if (mode === "straight" && speakMode && isResultCorrect) {
+      if (!answer) return [];
+      return [{ text: answer, ok: true }];
+    }
+    /** Straight + Speak + incorrect: word alignment shows missing expected words (omitted phrases never appear in the transcript). */
+    if (mode === "straight" && speakMode && !isResultCorrect) {
+      return diffGivenVsExpectedWordAware(answer, expectedOfficialStr);
+    }
+    return diffGivenVsExpected(answer, expectedOfficialStr);
+  }, [showResult, answer, expectedOfficialStr, mode, speakMode, isResultCorrect]);
 
   const flashcardKeywordTags = useMemo(() => {
     const card = displayCard ?? current;
@@ -483,7 +496,9 @@ export default function PracticePage() {
   }, [displayCard, current]);
 
   useEffect(() => {
-    if (showResult || mode !== "straight" || !keywordClozeMode || !current) return;
+    if (showResult || !keywordClozeMode || !current) return;
+    if (mode !== "straight" && mode !== "flashcard") return;
+    if (mode === "flashcard" && (flashcardBrowseOnly || flashcardRevealed)) return;
     const tags = splitKeywordTagsForHighlight(String(current.keywords ?? ""));
     if (!tags.length) return;
     const expected =
@@ -493,16 +508,19 @@ export default function PracticePage() {
     const trimmed = expected.trim();
     if (!trimmed) return;
     const key = `${current.id}\0${promptMode}\0${keywordClozeMode}`;
-    if (keywordClozeSeedKeyRef.current === key) return;
+    /** Same card + user already typing: do not rebuild scaffold every run. */
+    if (keywordClozeSeedKeyRef.current === key && answer.trim() !== "") return;
+
+    const scaffold = buildProgressiveKeywordClozeAnswerFromSpeech(
+      trimmed,
+      String(current.keywords ?? ""),
+      ""
+    );
+    if (keywordClozeSeedKeyRef.current === key && scaffold.length === 0) return;
+
     keywordClozeSeedKeyRef.current = key;
     keywordClozeSpeakAccumRef.current = "";
-    setAnswer(
-      buildProgressiveKeywordClozeAnswerFromSpeech(
-        trimmed,
-        String(current.keywords ?? ""),
-        ""
-      )
-    );
+    setAnswer(scaffold);
   }, [
     current?.id,
     current?.keywords,
@@ -512,6 +530,9 @@ export default function PracticePage() {
     keywordClozeMode,
     mode,
     showResult,
+    answer,
+    flashcardBrowseOnly,
+    flashcardRevealed,
   ]);
 
   useLayoutEffect(() => {
@@ -540,15 +561,21 @@ export default function PracticePage() {
   useEffect(() => {
     if (mode === "flashcard" && current) {
       setFlashcardRevealed(false);
-      setAnswer("");
+      const tags = splitKeywordTagsForHighlight(String(current.keywords ?? ""));
+      if (!keywordClozeMode || tags.length === 0) {
+        setAnswer("");
+      }
     }
-  }, [current?.id, mode]);
+  }, [current?.id, mode, keywordClozeMode, current?.keywords]);
 
   useEffect(() => {
     if (mode !== "flashcard") return;
     setFlashcardRevealed(false);
-    setAnswer("");
-  }, [promptMode, mode]);
+    const tags = splitKeywordTagsForHighlight(String(current?.keywords ?? ""));
+    if (!keywordClozeMode || tags.length === 0) {
+      setAnswer("");
+    }
+  }, [promptMode, mode, keywordClozeMode, current?.keywords]);
 
   useEffect(() => {
     if (mode !== "flashcard") setFlashcardBrowseOnly(false);
@@ -627,17 +654,27 @@ export default function PracticePage() {
 
     const deckVocabulary =
       deckAnswerVocabulary.length > 0 ? [...deckAnswerVocabulary] : [];
-    /** Flashcard + speak: freeform answer — no deck phrase hints or vocab snapping (evaluation is user flip). */
+    /**
+     * Flashcard + speak: freeform — no deck phrase hints.
+     * Straight + speak: pass deck phrases to STT only when **Consider only deck answers** is on
+     * (Google phrase hints + `pickBestTranscript` fuzzy snap). Otherwise use the raw transcript so
+     * answers are not forced to match the card text unless the user opted in. Keyword cloze with
+     * keywords (straight or flashcard practice) builds the answer in `handleResult` and uses
+     * `vocabulary: undefined` here.
+     */
     const vocabulary = afterDelayFlashcard
       ? undefined
-      : deckVocabulary.length
+      : vocabularyBias && deckVocabulary.length
         ? deckVocabulary
         : undefined;
 
-    const keywordClozeStraight =
-      !afterDelayFlashcard &&
+    /** Straight or flashcard (practice) + keyword cloze + tags — scaffold speech & no deck phrase forcing. */
+    const keywordClozeAnswerWithTags =
       keywordClozeModeRef.current &&
-      modeRef.current === "straight";
+      !!currentItemRef.current &&
+      splitKeywordTagsForHighlight(String(currentItemRef.current.keywords ?? "")).length > 0 &&
+      (modeRef.current === "straight" ||
+        (modeRef.current === "flashcard" && !flashcardBrowseOnlyRef.current));
 
     const handleResult = (transcript: string, isFinal: boolean) => {
       if (!isFinal) return;
@@ -648,13 +685,15 @@ export default function PracticePage() {
       let newTranscript = transcript.trim();
       const q = questionTextRef.current.trim();
       /**
-       * Strip when the mic first picked up the TTS question, then the answer (same phrase).
-       * Skip for keyword-cloze straight: the answer line often *shares the same opening* as the
-       * prompt read aloud (or differs only by comma vs period), so prefix match would eat
-       * “Pardon, Monsieur…” and leave “onsieur, où est…”.
-       * With “Consider only deck answers” we already skip — STT is phrase-biased.
+       * Strip when **Listen** played the question via TTS before the mic, and the transcript
+       * starts with that same text (echo) before the user’s answer. Only run when Listen is on —
+       * otherwise there is no TTS echo, but `q` still matches the prompt line and can share a long
+       * prefix with the spoken answer (same sentence), which would wrongly trim the start (e.g.
+       * “Pardon, Monsieur…” → “onsieur…”).
+       * Skip for keyword-cloze straight with keywords: shared openings with the prompt would break cloze assembly.
+       * With “Consider only deck answers” we skip — STT is phrase-biased instead.
        */
-      if (q && !keywordClozeStraight && !vocabularyBias) {
+      if (q && listenMode && !keywordClozeAnswerWithTags && !vocabularyBias) {
         for (let i = q.length; i >= 1; i--) {
           if (i < MIN_QUESTION_ECHO_PREFIX_LEN && i < q.length) continue;
           const prefix = q.slice(0, i);
@@ -666,7 +705,7 @@ export default function PracticePage() {
       }
       if (!newTranscript) return;
 
-      if (keywordClozeStraight && currentItemRef.current) {
+      if (keywordClozeAnswerWithTags && currentItemRef.current) {
         const card = currentItemRef.current;
         const tags = splitKeywordTagsForHighlight(String(card.keywords ?? ""));
         const expected =
@@ -704,24 +743,20 @@ export default function PracticePage() {
             buildProgressiveKeywordClozeAnswerFromSpeech(
               expected,
               String(card.keywords ?? ""),
-              combined
+              combined,
+              fieldNow
             )
           );
           /** Wrong or partial: only swap ___ for sentences that validate against accumulated speech. */
           return;
         }
-        /**
-         * Keyword cloze on but this card has no eligible tags — don’t run generic merge (would
-         * paste raw STT and wipe any scaffold).
-         */
-        return;
       }
 
       if (
         !afterDelayFlashcard &&
         vocabularyBias &&
         vocabulary?.length &&
-        !keywordClozeStraight
+        !keywordClozeAnswerWithTags
       ) {
         const resolved = resolveDeckOnlyTranscript(
           newTranscript,
@@ -734,7 +769,7 @@ export default function PracticePage() {
       }
       if (
         !afterDelayFlashcard &&
-        !keywordClozeStraight &&
+        !keywordClozeAnswerWithTags &&
         vocabulary?.length &&
         Object.keys(deckSttAliasesRecord).length > 0
       ) {
@@ -817,7 +852,7 @@ export default function PracticePage() {
       (vocabularyBias &&
         !afterDelayFlashcard &&
         !!vocabulary?.length &&
-        !keywordClozeStraight) ||
+        !keywordClozeAnswerWithTags) ||
       (afterDelayFlashcard && useFlashcardGoogle);
 
     if (tryCloudGoogle) {
@@ -835,9 +870,9 @@ export default function PracticePage() {
             lang: speechLang,
             // Flashcard: omit phrases/aliases so Google returns open transcription (no deck forcing).
             vocabulary:
-              afterDelayFlashcard || keywordClozeStraight ? undefined : vocabulary,
+              afterDelayFlashcard || keywordClozeAnswerWithTags ? undefined : vocabulary,
             sttAliases:
-              afterDelayFlashcard || keywordClozeStraight
+              afterDelayFlashcard || keywordClozeAnswerWithTags
                 ? undefined
                 : deckSttAliasesRecord,
             onResult: handleResult,
@@ -868,10 +903,10 @@ export default function PracticePage() {
       }
       stop = startListening({
         lang: speechLang,
-        vocabulary: keywordClozeStraight ? undefined : vocabulary,
-        vocabularyOnly: keywordClozeStraight ? false : vocabularyOnly,
+        vocabulary: keywordClozeAnswerWithTags ? undefined : vocabulary,
+        vocabularyOnly: keywordClozeAnswerWithTags ? false : vocabularyOnly,
         sttAliases:
-          afterDelayFlashcard || keywordClozeStraight
+          afterDelayFlashcard || keywordClozeAnswerWithTags
             ? undefined
             : vocabularyOnly || Object.keys(deckSttAliasesRecord).length > 0
               ? deckSttAliasesRecord
@@ -913,6 +948,7 @@ export default function PracticePage() {
     bumpListenGeneration,
     deckAnswerVocabulary,
     flashcardBrowseOnly,
+    listenMode,
   ]);
 
   // When item loads: if listenMode, speak the question (only once per item). If speakMode (and straight/flashcard), start listening after TTS ends.
@@ -992,23 +1028,16 @@ export default function PracticePage() {
       if (ok) {
         setCorrect((c) => c + 1);
         if (repeatMistakesMode) {
-          setList((prev) => {
-            const next = prev.filter((_, i) => i !== displayIndex);
-            if (next.length === 0) {
-              setTimeout(() => router.push(`/practice/${id}/result?correct=${correct + 1}&wrong=${wrong}&total=${originalTotal || total}`), 0);
-            }
-            return next;
-          });
-          setIndex(0);
-          setShowResult(false);
-          setResultCardItem(null);
-          setAnswer("");
+          repeatMistakesRemoveCorrectIdRef.current = current.id;
+          /** Fixing a prior miss: +1 correct and −1 wrong so ✓+✗ total stays the same. */
+          setWrong((w) => Math.max(0, w - 1));
         }
       } else {
-        setWrong((w) => w + 1);
         if (!repeatMistakesMode) {
+          setWrong((w) => w + 1);
           setWrongItems((prev) => [...prev, current]);
         } else {
+          /** Still wrong in repeat round: show incorrect feedback but do not add to the ✗ tally again. */
           setList((prev) => {
             const item = prev[displayIndex];
             if (item === undefined) return prev;
@@ -1019,12 +1048,8 @@ export default function PracticePage() {
         }
       }
 
-      // Repeat-mistakes correct answer: inner block already set showResult false and advanced the list.
-      // Do not force showResult true here — that reused the last-spoken id for Listen and trapped the UI on the result pane.
-      if (!(ok && repeatMistakesMode)) {
-        setResultCardItem(current);
-        setShowResult(true);
-      }
+      setResultCardItem(current);
+      setShowResult(true);
 
       // When Listen is on, speak the evaluation feedback
       if (listenMode && expectedStr) {
@@ -1035,8 +1060,6 @@ export default function PracticePage() {
         }
       }
 
-      // Repeat-mistakes correct path leaves showResult false, so the showResult effect never
-      // cleared this — handleEnd would then refuse to restart the mic after silence/session end.
       answerCheckPendingRef.current = false;
     },
     [current, displayIndex, promptMode, repeatMistakesMode, list.length, correct, wrong, originalTotal, total, id, router, listenMode, speechLang]
@@ -1057,6 +1080,13 @@ export default function PracticePage() {
     }
     stopSpeaking();
     keywordClozeSpeakAccumRef.current = "";
+
+    const removeCorrectId =
+      repeatMistakesMode ? repeatMistakesRemoveCorrectIdRef.current : null;
+    if (repeatMistakesMode) {
+      repeatMistakesRemoveCorrectIdRef.current = null;
+    }
+
     setAnswer("");
     setShowResult(false);
     setResultCardItem(null);
@@ -1067,7 +1097,21 @@ export default function PracticePage() {
       return;
     }
     if (repeatMistakesMode) {
-      return; // List/index already updated in checkAnswer
+      if (removeCorrectId) {
+        setList((prev) => {
+          const nextList = prev.filter((it) => it.id !== removeCorrectId);
+          if (nextList.length === 0) {
+            setTimeout(() => {
+              router.push(
+                `/practice/${id}/result?correct=${correct}&wrong=${wrong}&total=${originalTotal || total}`
+              );
+            }, 0);
+          }
+          return nextList;
+        });
+        setIndex(0);
+      }
+      return;
     }
     if (displayIndex + 1 >= total) {
       const toRepeat = wrongItemsRef.current;
@@ -1092,7 +1136,11 @@ export default function PracticePage() {
     bumpListenGeneration,
     mode,
     flashcardBrowseOnly,
-    repeatMistakesMode,
+    correct,
+    wrong,
+    originalTotal,
+    id,
+    router,
   ]);
 
   const prev = useCallback(() => {
@@ -1117,26 +1165,6 @@ export default function PracticePage() {
   }, [total, bumpListenGeneration]);
 
   const revealFlashcard = useCallback(() => {
-    if (current) {
-      const tags = splitKeywordTagsForHighlight(String(current.keywords ?? ""));
-      if (
-        keywordClozeMode &&
-        tags.length > 0 &&
-        mode === "flashcard" &&
-        !flashcardBrowseOnly
-      ) {
-        const expected =
-          promptMode === "description"
-            ? String(current.description ?? "").trim()
-            : String(current.explanation ?? "").trim();
-        if (
-          normalizeAnswer(answerRef.current) !== normalizeAnswer(expected)
-        ) {
-          toast.error(t("practice.keywordClozeMustMatch"));
-          return;
-        }
-      }
-    }
     bumpListenGeneration();
     if (ttsAfterListenTimerRef.current) {
       clearTimeout(ttsAfterListenTimerRef.current);
@@ -1146,16 +1174,7 @@ export default function PracticePage() {
     setIsListening(false);
     stopListeningRef.current = null;
     setFlashcardRevealed(true);
-  }, [
-    bumpListenGeneration,
-    current,
-    keywordClozeMode,
-    mode,
-    flashcardBrowseOnly,
-    promptMode,
-    toast,
-    t,
-  ]);
+  }, [bumpListenGeneration]);
 
   function handleListenQuestion() {
     if (!displayCard) return;
@@ -1316,6 +1335,8 @@ export default function PracticePage() {
     promptMode === "description"
       ? String(activeCard.explanation ?? "")
       : String(activeCard.description ?? "");
+  const activeCardHasKeywordTags =
+    splitKeywordTagsForHighlight(String(activeCard.keywords ?? "")).length > 0;
 
   return (
     <div className="min-h-screen bg-stone-50">
@@ -1760,28 +1781,15 @@ export default function PracticePage() {
           </div>
         )}
 
-        {!showResult &&
-          keywordClozeMode &&
-          (mode === "straight" || mode === "flashcard") &&
-          !(mode === "flashcard" && (flashcardBrowseOnly || flashcardRevealed)) &&
-          splitKeywordTagsForHighlight(String(activeCard.keywords ?? "")).length > 0 && (
-            <div className="mb-5">
-              <KeywordClozeAnswerPrompt
-                answerText={
-                  promptMode === "description"
-                    ? String(activeCard.description ?? "")
-                    : String(activeCard.explanation ?? "")
-                }
-                keywordsRaw={String(activeCard.keywords ?? "")}
-                label={t("practice.keywordClozePromptLabel")}
-              />
-            </div>
-          )}
-
         {!showResult ? (
           <>
             {mode === "straight" ? (
               <>
+                {keywordClozeMode && activeCardHasKeywordTags && (
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
+                    {t("practice.keywordClozePromptLabel")}
+                  </p>
+                )}
                 <form
                   className="space-y-3"
                   onSubmit={(e) => {
@@ -1796,7 +1804,11 @@ export default function PracticePage() {
                       onChange={(e) => {
                         const newVal = e.target.value;
                         setAnswer(newVal);
-                        if (keywordClozeMode && mode === "straight") {
+                        if (
+                          keywordClozeMode &&
+                          mode === "straight" &&
+                          splitKeywordTagsForHighlight(String(current?.keywords ?? "")).length > 0
+                        ) {
                           keywordClozeSpeakAccumRef.current = newVal.includes(
                             KEYWORD_CLOZE_GAP_MARKER
                           )
@@ -1910,6 +1922,11 @@ export default function PracticePage() {
               <div className="mx-auto w-full max-w-xl space-y-4">
                 {!flashcardRevealed ? (
                   <div>
+                    {keywordClozeMode && activeCardHasKeywordTags && (
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
+                        {t("practice.keywordClozePromptLabel")}
+                      </p>
+                    )}
                     <label
                       htmlFor="flashcard-back-input"
                       className="mb-2 block text-sm font-medium text-stone-700"
@@ -1922,6 +1939,16 @@ export default function PracticePage() {
                       onChange={(e) => {
                         const newVal = e.target.value;
                         setAnswer(newVal);
+                        if (
+                          keywordClozeMode &&
+                          splitKeywordTagsForHighlight(String(current?.keywords ?? "")).length > 0
+                        ) {
+                          keywordClozeSpeakAccumRef.current = newVal.includes(
+                            KEYWORD_CLOZE_GAP_MARKER
+                          )
+                            ? ""
+                            : newVal;
+                        }
                         if (
                           speakMode &&
                           newVal === "" &&
@@ -2135,7 +2162,7 @@ export default function PracticePage() {
               className="btn-primary"
             >
               {repeatMistakesMode
-                ? list.length <= 1
+                ? list.length <= 1 && isResultCorrect
                   ? t("practice.seeResults")
                   : t("common.next")
                 : displayIndex + 1 >= total

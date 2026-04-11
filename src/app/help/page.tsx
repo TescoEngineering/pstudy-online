@@ -199,6 +199,7 @@ export default function HelpPage() {
     { id: "exams", titleKey: "help.sectionExams", bodyKey: "help.bodyExams" },
     { id: "community", titleKey: "help.sectionCommunity", bodyKey: "help.bodyCommunity" },
     { id: "peer-review", titleKey: "help.sectionPeerReview", bodyKey: "help.bodyPeerReview" },
+    { id: "my-communities", titleKey: "help.sectionMyCommunities", bodyKey: "help.bodyMyCommunities" },
     { id: "speech", titleKey: "help.sectionSpeech", bodyKey: "help.bodySpeech" },
     { id: "more-help", titleKey: "help.sectionMoreHelp", bodyKey: "help.bodyMoreHelp" },
     { id: "contact", titleKey: "help.sectionContact", bodyKey: "help.bodyContact", form: true },

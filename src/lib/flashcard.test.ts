@@ -131,6 +131,36 @@ describe("transcriptCompletesKeywordCloze", () => {
       transcriptCompletesKeywordCloze("the capital is Lyon", "The capital is Paris.", "Paris")
     ).toBeNull();
   });
+
+  it("accepts speech that only matches under lenient rules and returns canonical expected", () => {
+    expect(
+      transcriptCompletesKeywordCloze(
+        "pardon MONSIEUR where is Paris",
+        "Pardon, monsieur, where is Paris?",
+        "Paris"
+      )
+    ).toBe("Pardon, monsieur, where is Paris?");
+  });
+
+  it("accepts when keywords appear in a different order and returns canonical sentence", () => {
+    expect(
+      transcriptCompletesKeywordCloze(
+        "Paris the capital is",
+        "The capital is Paris.",
+        "Paris"
+      )
+    ).toBe("The capital is Paris.");
+  });
+
+  it("accepts when multiple keywords are spoken out of order", () => {
+    expect(
+      transcriptCompletesKeywordCloze(
+        "Lyon et Paris je vois bien",
+        "Je vois Paris et Lyon.",
+        "Paris,Lyon"
+      )
+    ).toBe("Je vois Paris et Lyon.");
+  });
 });
 
 describe("appendSpeechTranscriptChunk", () => {
@@ -173,5 +203,16 @@ describe("buildProgressiveKeywordClozeAnswerFromSpeech", () => {
     const kw = "Paris";
     const spoken = "Bonjour. Paris est magnifique.";
     expect(buildProgressiveKeywordClozeAnswerFromSpeech(exp, kw, spoken)).toBe(exp);
+  });
+
+  it("does not revert an earlier completed keyword sentence when speech only contains a later sentence", () => {
+    const exp = "Je vois Paris. Tu aimes Lyon.";
+    const kw = "Paris,Lyon";
+    const spokenOnlySecond = "Tu aimes Lyon.";
+    const currentField = `Je vois Paris. Tu aimes ${KEYWORD_CLOZE_GAP_MARKER}.`;
+    const out = buildProgressiveKeywordClozeAnswerFromSpeech(exp, kw, spokenOnlySecond, currentField);
+    expect(out).toContain("Je vois Paris.");
+    expect(out).toContain("Tu aimes Lyon.");
+    expect(out).not.toContain(KEYWORD_CLOZE_GAP_MARKER);
   });
 });
