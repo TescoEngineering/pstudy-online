@@ -1,4 +1,10 @@
 import { createClient } from "./client";
+import {
+  getCachedOwnedDeck,
+  getCachedOwnedDecksList,
+  invalidateOwnedDecksListCache,
+  setCachedOwnedDecksList,
+} from "./decks-client-cache";
 import { Deck, PStudyItem } from "@/types/pstudy";
 import { isDeckContentLanguageCode } from "@/lib/deck-content-language";
 import {
@@ -60,13 +66,27 @@ function dbItemToItem(db: DbItem): PStudyItem {
   };
 }
 
-function dbDeckToDeck(db: DbDeck, items: PStudyItem[], includeOwner = false): Deck {
+type DbDeckToDeckMode =
+  | { mode: "full" }
+  | { mode: "list"; itemCount: number };
+
+function dbDeckToDeck(
+  db: DbDeck,
+  items: PStudyItem[],
+  includeOwner = false,
+  load: DbDeckToDeckMode = { mode: "full" }
+): Deck {
   const pub = normalizePublicationStatus(db.publication_status);
   const rev = normalizeReviewStatus(db.review_status);
+  const listMode = load.mode === "list";
+  const itemList = listMode ? [] : items;
+  const itemCount = listMode ? load.itemCount : items.length;
   return {
     id: db.id,
     title: db.title,
-    items,
+    items: itemList,
+    itemCount,
+    itemsLoaded: !listMode,
     createdAt: db.created_at,
     updatedAt: db.updated_at,
     isPublic: db.is_public ?? false,
@@ -81,10 +101,15 @@ function dbDeckToDeck(db: DbDeck, items: PStudyItem[], includeOwner = false): De
   };
 }
 
-export async function fetchDecks(): Promise<Deck[]> {
+export async function fetchDecks(opts?: { bypassCache?: boolean }): Promise<Deck[]> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
+
+  if (!opts?.bypassCache) {
+    const cached = getCachedOwnedDecksList(user.id);
+    if (cached) return cached;
+  }
 
   const { data: decks, error } = await supabase
     .from("decks")
@@ -93,23 +118,46 @@ export async function fetchDecks(): Promise<Deck[]> {
     .order("updated_at", { ascending: false });
 
   if (error) throw error;
-  if (!decks?.length) return [];
+  if (!decks?.length) {
+    setCachedOwnedDecksList(user.id, []);
+    return [];
+  }
+
+  const countResults = await Promise.all(
+    decks.map((d) =>
+      supabase
+        .from("items")
+        .select("id", { count: "exact", head: true })
+        .eq("deck_id", d.id)
+    )
+  );
 
   const result: Deck[] = [];
-  for (const d of decks) {
-    const { data: items } = await supabase
-      .from("items")
-      .select("*")
-      .eq("deck_id", d.id)
-      .order("order");
-    const itemList = (items ?? []).map(dbItemToItem);
-    result.push(dbDeckToDeck(d, itemList));
+  for (let i = 0; i < decks.length; i++) {
+    const d = decks[i] as DbDeck;
+    const { count, error: countErr } = countResults[i]!;
+    if (countErr) throw countErr;
+    result.push(
+      dbDeckToDeck(d, [], true, { mode: "list", itemCount: count ?? 0 })
+    );
   }
-  return result;
+  setCachedOwnedDecksList(user.id, result);
+  return getCachedOwnedDecksList(user.id) ?? result;
 }
 
-export async function fetchDeck(id: string): Promise<Deck | null> {
+export async function fetchDeck(
+  id: string,
+  opts?: { bypassCache?: boolean }
+): Promise<Deck | null> {
   const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user && !opts?.bypassCache) {
+    const hit = getCachedOwnedDeck(user.id, id);
+    if (hit) return hit;
+  }
+
   const { data: deck, error } = await supabase
     .from("decks")
     .select("*")
@@ -135,11 +183,6 @@ export type PublicDecksFilters = {
   languages?: string[];
   /** When filtering by `languages`, also include decks with no `content_language` set. Default true. */
   includeUnspecifiedLanguage?: boolean;
-  /**
-   * If set, only decks whose stored pair has this code as the **second** language (`*,code` after comma).
-   * Single-language decks do not match. Combined with {@link languages} via AND.
-   */
-  secondLanguage?: string | null;
 };
 
 /** Fetch public decks (for Community page) */
@@ -180,29 +223,31 @@ export async function fetchPublicDecks(filters?: PublicDecksFilters): Promise<De
     }
   }
 
-  const secondRaw = filters?.secondLanguage?.trim();
-  if (secondRaw) {
-    const code = secondRaw.toLowerCase();
-    if (isDeckContentLanguageCode(code)) {
-      query = query.like("content_language", `%,${code}`);
-    }
-  }
-
   const { data: decks, error } = await query;
 
   if (error) throw error;
   if (!decks?.length) return [];
 
   const reps = pickCommunityRepresentativeRows(decks as DbDeck[]);
+  if (reps.length === 0) return [];
+
+  const countResults = await Promise.all(
+    reps.map((d) =>
+      supabase
+        .from("items")
+        .select("id", { count: "exact", head: true })
+        .eq("deck_id", d.id)
+    )
+  );
+
   const result: Deck[] = [];
-  for (const d of reps) {
-    const { data: items } = await supabase
-      .from("items")
-      .select("*")
-      .eq("deck_id", d.id)
-      .order("order");
-    const itemList = (items ?? []).map(dbItemToItem);
-    result.push(dbDeckToDeck(d, itemList, true));
+  for (let i = 0; i < reps.length; i++) {
+    const d = reps[i]!;
+    const { count, error: countErr } = countResults[i]!;
+    if (countErr) throw countErr;
+    result.push(
+      dbDeckToDeck(d, [], true, { mode: "list", itemCount: count ?? 0 })
+    );
   }
   return result;
 }
@@ -237,7 +282,7 @@ export async function duplicateOwnedDeck(
     throw new Error("Deck not found or access denied");
   }
 
-  const sourceDeck = await fetchDeck(deckId);
+  const sourceDeck = await fetchDeck(deckId, { bypassCache: true });
   if (!sourceDeck) throw new Error("Deck not found");
 
   const pub = normalizePublicationStatus(row.publication_status as string | null);
@@ -255,6 +300,8 @@ export async function duplicateOwnedDeck(
   const deckWithItems: Deck = {
     ...newDeck,
     items: itemsWithNewIds,
+    itemCount: itemsWithNewIds.length,
+    itemsLoaded: true,
     fieldOfInterest: sourceDeck.fieldOfInterest ?? null,
     topic: sourceDeck.topic ?? null,
     contentLanguage: sourceDeck.contentLanguage ?? null,
@@ -273,7 +320,8 @@ export async function duplicateOwnedDeck(
     })
     .eq("id", newDeck.id);
 
-  const fresh = await fetchDeck(newDeck.id);
+  const fresh = await fetchDeck(newDeck.id, { bypassCache: true });
+  invalidateOwnedDecksListCache();
   return fresh ?? deckWithItems;
 }
 
@@ -286,7 +334,7 @@ export async function copyReadableDeckToMine(deckId: string): Promise<Deck> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not logged in");
 
-  const sourceDeck = await fetchDeck(deckId);
+  const sourceDeck = await fetchDeck(deckId, { bypassCache: true });
   if (!sourceDeck) throw new Error("Deck not found");
   if (sourceDeck.ownerId === user.id) throw new Error("This deck is already yours");
 
@@ -298,6 +346,8 @@ export async function copyReadableDeckToMine(deckId: string): Promise<Deck> {
   const deckWithItems: Deck = {
     ...newDeck,
     items: itemsWithNewIds,
+    itemCount: itemsWithNewIds.length,
+    itemsLoaded: true,
     fieldOfInterest: sourceDeck.fieldOfInterest,
     topic: sourceDeck.topic,
     contentLanguage: sourceDeck.contentLanguage ?? null,
@@ -312,7 +362,8 @@ export async function copyReadableDeckToMine(deckId: string): Promise<Deck> {
       review_status: "none",
     })
     .eq("id", newDeck.id);
-  const fresh = await fetchDeck(newDeck.id);
+  const fresh = await fetchDeck(newDeck.id, { bypassCache: true });
+  invalidateOwnedDecksListCache();
   return (
     fresh ?? {
       ...deckWithItems,
@@ -330,7 +381,7 @@ export async function copyDeckToMine(deckId: string): Promise<Deck> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not logged in");
 
-  const sourceDeck = await fetchDeck(deckId);
+  const sourceDeck = await fetchDeck(deckId, { bypassCache: true });
   if (!sourceDeck) throw new Error("Deck not found");
   if (!sourceDeck.isPublic) throw new Error("This deck is not shared");
 
@@ -356,7 +407,8 @@ export async function copyDeckToMine(deckId: string): Promise<Deck> {
       review_status: "none",
     })
     .eq("id", newDeck.id);
-  const fresh = await fetchDeck(newDeck.id);
+  const fresh = await fetchDeck(newDeck.id, { bypassCache: true });
+  invalidateOwnedDecksListCache();
   return (
     fresh ?? {
       ...deckWithItems,
@@ -396,7 +448,7 @@ export async function mergeDecksIntoNew(sourceDeckIdsInOrder: string[], title: s
     if (rowErr || !row || row.owner_id !== user.id) {
       throw new Error("Deck not found or access denied");
     }
-    const deck = await fetchDeck(id);
+    const deck = await fetchDeck(id, { bypassCache: true });
     if (!deck) throw new Error("Deck not found");
     sources.push(deck);
   }
@@ -415,6 +467,8 @@ export async function mergeDecksIntoNew(sourceDeckIdsInOrder: string[], title: s
     ...newDeck,
     title: safeTitle,
     items: mergedItems,
+    itemCount: mergedItems.length,
+    itemsLoaded: true,
     isPublic: false,
     fieldOfInterest: first.fieldOfInterest ?? null,
     topic: first.topic ?? null,
@@ -431,7 +485,8 @@ export async function mergeDecksIntoNew(sourceDeckIdsInOrder: string[], title: s
     })
     .eq("id", newDeck.id);
 
-  const fresh = await fetchDeck(newDeck.id);
+  const fresh = await fetchDeck(newDeck.id, { bypassCache: true });
+  invalidateOwnedDecksListCache();
   return fresh ?? deckWithItems;
 }
 
@@ -460,7 +515,8 @@ export async function createDeck(title: string = "Untitled deck"): Promise<Deck>
     .single();
 
   if (error) throw error;
-  return dbDeckToDeck(deck as DbDeck, [], false);
+  invalidateOwnedDecksListCache();
+  return dbDeckToDeck(deck as DbDeck, [], true);
 }
 
 export async function updateDeck(
@@ -483,12 +539,14 @@ export async function updateDeck(
     .eq("id", id);
 
   if (error) throw error;
+  invalidateOwnedDecksListCache();
 }
 
 export async function deleteDeck(id: string): Promise<void> {
   const supabase = createClient();
   const { error } = await supabase.from("decks").delete().eq("id", id);
   if (error) throw error;
+  invalidateOwnedDecksListCache();
 }
 
 export async function saveDeckWithItems(deck: Deck): Promise<void> {
@@ -566,6 +624,7 @@ export async function saveDeckWithItems(deck: Deck): Promise<void> {
   if (toDelete.length > 0) {
     await supabase.from("items").delete().in("id", toDelete);
   }
+  invalidateOwnedDecksListCache();
 }
 
 export async function addItemToDeck(deckId: string, item: PStudyItem, order: number): Promise<string> {
@@ -603,5 +662,8 @@ export async function addItemToDeck(deckId: string, item: PStudyItem, order: num
     .single();
 
   if (error) throw error;
+  invalidateOwnedDecksListCache();
   return data.id;
 }
+
+export { invalidateOwnedDecksListCache } from "./decks-client-cache";

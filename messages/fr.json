@@ -82,11 +82,15 @@
     "shared": "Partagé",
     "private": "Privé",
     "deleteDeckConfirm": "Supprimer ce paquet ?",
-    "untitledDeck": "Paquet sans titre"
+    "untitledDeck": "Paquet sans titre",
+    "filterDecksHint": "Filtrez par titre, domaine, thème et langue du paquet — les mêmes options que dans PstudyCommunity.",
+    "noDecksMatchFilters": "Aucun paquet ne correspond à ces filtres. Modifiez les critères ou réinitialisez les filtres.",
+    "clearDeckFilters": "Effacer les filtres"
   },
   "deck": {
     "backToDashboard": "← Mes paquets",
     "editDeck": "Modifier le paquet",
+    "deckSetup": "Paramètres du paquet",
     "field": "Domaine",
     "topic": "Sujet",
     "checkedCannotSave": "Ce paquet est vérifié et ne peut plus être modifié. Dupliquez-le pour apporter des changements.",

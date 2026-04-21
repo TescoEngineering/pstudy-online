@@ -58,9 +58,11 @@ import { HelpNavLink } from "@/components/HelpNavLink";
 import { ContextHint } from "@/components/ContextHint";
 import { useToast } from "@/components/Toast";
 import { FIELDS_OF_INTEREST, getTopicsForField } from "@/lib/deck-attributes";
+import { SpeechLanguageSelectOptions } from "@/components/SpeechLanguageSelectOptions";
+import { matchSpeechLanguageSelectValue } from "@/lib/speech-languages";
 import {
-  DECK_CONTENT_LANGUAGE_CODES,
   deckContentLanguagesClassificationComplete,
+  getDeckContentLanguageLabel,
   parseDeckContentLanguages,
   serializeDeckContentLanguages,
   type DeckContentLanguageCode,
@@ -108,7 +110,7 @@ export default function DeckEditorPage() {
   const [wantsShare, setWantsShare] = useState(false);
   const wantsShareRef = useRef(false);
   const shareUiInitializedForDeckId = useRef<string | null>(null);
-  const [communityShareOpen, setCommunityShareOpen] = useState(false);
+  const [deckSetupOpen, setDeckSetupOpen] = useState(true);
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const columnMenuRef = useRef<HTMLDivElement>(null);
   const [duplicatingDeck, setDuplicatingDeck] = useState(false);
@@ -120,7 +122,6 @@ export default function DeckEditorPage() {
   const [schoolShare, setSchoolShare] = useState<DeckOrgShareState | null>(null);
   const [schoolVisibilityChoice, setSchoolVisibilityChoice] =
     useState<DeckOrgShareVisibility>("school");
-  const [schoolPanelOpen, setSchoolPanelOpen] = useState(false);
   const [schoolBusy, setSchoolBusy] = useState(false);
 
   const deckContentLangCodes = useMemo(
@@ -128,7 +129,6 @@ export default function DeckEditorPage() {
     [deck?.contentLanguage]
   );
   const deckFirstContentLang = deckContentLangCodes[0] ?? "";
-  const deckSecondContentLang = deckContentLangCodes[1] ?? "";
 
   const columnFilterSummary = useMemo(() => {
     const n =
@@ -292,6 +292,9 @@ export default function DeckEditorPage() {
       ...updates,
       updatedAt: new Date().toISOString(),
     };
+    if (updates.items !== undefined) {
+      merged.itemCount = updates.items.length;
+    }
     const next: Deck = {
       ...merged,
       isPublic: Boolean(wantsShareRef.current && isClassificationComplete(merged)),
@@ -590,7 +593,7 @@ export default function DeckEditorPage() {
                     <dd>
                       {deckContentLangCodes.length > 0
                         ? deckContentLangCodes
-                            .map((code) => t(`deck.contentLang_${code}`))
+                            .map((code) => getDeckContentLanguageLabel(code, t))
                             .join(`${t("deck.contentLanguagePairSeparator")}`)
                         : "—"}
                     </dd>
@@ -600,303 +603,275 @@ export default function DeckEditorPage() {
             ) : (
             <details
               className="w-full max-w-3xl rounded border border-stone-200 bg-white px-3 py-2"
-              open={communityShareOpen}
-              onToggle={(e) => setCommunityShareOpen(e.currentTarget.open)}
+              open={deckSetupOpen}
+              onToggle={(e) => setDeckSetupOpen(e.currentTarget.open)}
             >
               <summary className="cursor-pointer select-none text-sm font-medium text-stone-700 outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:ring-offset-2">
-                {t("deck.communitySharingSection")}
+                {t("deck.deckSetup")}
               </summary>
-              <div className="mt-3 space-y-3">
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-600">
-                    <input
-                      type="checkbox"
-                      checked={wantsShare}
-                      onChange={(e) => handleShareToggle(e.target.checked)}
-                      className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
-                    />
-                    {t("deck.shareWithCommunity")}
-                  </label>
-                  {deck?.isPublic && deck.publicationStatus === "checked" ? (
-                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
-                      {t("deckReview.badgeChecked")}
+              <div className="mt-3 space-y-4">
+                <fieldset className="rounded-xl border-2 border-teal-200/70 bg-teal-50/30 px-3 py-3">
+                  <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-teal-900">
+                    {t("deck.toolbarClassification")}
+                  </legend>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <div className="flex items-center gap-2">
+                      <label className="shrink-0 text-sm text-stone-600" htmlFor="deck-field">
+                        {t("deck.field")}:
+                      </label>
+                      <select
+                        id="deck-field"
+                        value={deck?.fieldOfInterest ?? ""}
+                        onChange={(e) =>
+                          updateDeckLocal({
+                            fieldOfInterest: e.target.value || null,
+                            topic: null,
+                          })
+                        }
+                        aria-invalid={!deck?.fieldOfInterest?.trim()}
+                        className="w-[11rem] max-w-[min(11rem,100vw-6rem)] rounded border border-stone-300 px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                      >
+                        <option value="">—</option>
+                        {FIELDS_OF_INTEREST.map((f) => (
+                          <option key={f} value={f}>
+                            {f}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="shrink-0 text-sm text-stone-600" htmlFor="deck-topic">
+                        {t("deck.topic")}:
+                      </label>
+                      <select
+                        id="deck-topic"
+                        value={deck?.topic ?? ""}
+                        onChange={(e) => updateDeckLocal({ topic: e.target.value || null })}
+                        aria-invalid={!deck?.topic?.trim()}
+                        className="w-[11rem] max-w-[min(11rem,100vw-6rem)] rounded border border-stone-300 px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                      >
+                        <option value="">—</option>
+                        {getTopicsForField(deck?.fieldOfInterest ?? null).map((top) => (
+                          <option key={top} value={top}>
+                            {top}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="shrink-0 text-sm text-stone-600" htmlFor="deck-content-lang-1">
+                        {t("deck.contentLanguage")}:
+                      </label>
+                      <select
+                        id="deck-content-lang-1"
+                        data-testid="deck-language-select"
+                        value={matchSpeechLanguageSelectValue(deckFirstContentLang)}
+                        title={t("deck.contentLanguageHint")}
+                        aria-label={t("deck.contentLanguage")}
+                        aria-invalid={!deckContentLanguagesClassificationComplete(deck?.contentLanguage ?? null)}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const next = raw === "" ? null : (raw as DeckContentLanguageCode);
+                          updateDeckLocal({
+                            contentLanguage: serializeDeckContentLanguages([next]),
+                          });
+                        }}
+                        className="w-[min(20rem,100vw-6rem)] max-w-full rounded border border-stone-300 bg-white px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                      >
+                        <SpeechLanguageSelectOptions
+                          includeEmpty
+                          includeOther
+                          otherLabel={getDeckContentLanguageLabel("other", t)}
+                        />
+                      </select>
+                    </div>
+                  </div>
+                </fieldset>
+
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
+                    {t("deck.communitySharingSection")}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-600">
+                      <input
+                        type="checkbox"
+                        checked={wantsShare}
+                        onChange={(e) => handleShareToggle(e.target.checked)}
+                        className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                      />
+                      {t("deck.shareWithCommunity")}
+                    </label>
+                    {deck?.isPublic && deck.publicationStatus === "checked" ? (
+                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800">
+                        {t("deckReview.badgeChecked")}
+                      </span>
+                    ) : null}
+                    {deck?.isPublic && deck.publicationStatus === "draft" ? (
+                      <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
+                        {t("deckReview.badgeDraft")}
+                      </span>
+                    ) : null}
+                    <span
+                      className={`inline-block min-w-[5rem] text-sm text-stone-500 ${saving ? "" : "invisible"}`}
+                      aria-hidden={!saving}
+                    >
+                      {t("deck.saving")}
                     </span>
+                  </div>
+                  {wantsShare && !isClassificationComplete(deck) ? (
+                    <p className="mt-2 text-sm text-amber-800">{t("deck.shareIncompleteHint")}</p>
                   ) : null}
                   {deck?.isPublic && deck.publicationStatus === "draft" ? (
-                    <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-900">
-                      {t("deckReview.badgeDraft")}
-                    </span>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setReviewInviteOpen(true)}
+                        className="btn-secondary text-sm"
+                      >
+                        {t("deckReview.peerReview")}
+                      </button>
+                      {deck.reviewStatus === "revise_and_resubmit" && !deckLocked ? (
+                        <button
+                          type="button"
+                          disabled={resubmittingReview}
+                          onClick={() => void handleResubmitForReview()}
+                          className="btn-primary text-sm disabled:opacity-50"
+                        >
+                          {resubmittingReview ? t("common.loading") : t("deckReview.resubmitForReview")}
+                        </button>
+                      ) : null}
+                    </div>
                   ) : null}
-                  <span
-                    className={`inline-block min-w-[5rem] text-sm text-stone-500 ${saving ? "" : "invisible"}`}
-                    aria-hidden={!saving}
-                  >
-                    {t("deck.saving")}
-                  </span>
                 </div>
-                {wantsShare ? (
-                  <div className="space-y-2">
-                    <fieldset className="rounded-xl border-2 border-teal-200/70 bg-teal-50/30 px-3 py-3">
-                      <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-teal-900">
-                        {t("deck.toolbarClassification")}
-                      </legend>
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                        <div className="flex items-center gap-2">
-                          <label className="shrink-0 text-sm text-stone-600" htmlFor="deck-field">
-                            {t("deck.field")}:
-                          </label>
-                          <select
-                            id="deck-field"
-                            value={deck?.fieldOfInterest ?? ""}
-                            onChange={(e) =>
-                              updateDeckLocal({
-                                fieldOfInterest: e.target.value || null,
-                                topic: null,
-                              })
-                            }
-                            aria-invalid={!deck?.fieldOfInterest?.trim()}
-                            className="w-[11rem] max-w-[min(11rem,100vw-6rem)] rounded border border-stone-300 px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-                          >
-                            <option value="">—</option>
-                            {FIELDS_OF_INTEREST.map((f) => (
-                              <option key={f} value={f}>
-                                {f}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <label className="shrink-0 text-sm text-stone-600" htmlFor="deck-topic">
-                            {t("deck.topic")}:
-                          </label>
-                          <select
-                            id="deck-topic"
-                            value={deck?.topic ?? ""}
-                            onChange={(e) => updateDeckLocal({ topic: e.target.value || null })}
-                            aria-invalid={!deck?.topic?.trim()}
-                            className="w-[11rem] max-w-[min(11rem,100vw-6rem)] rounded border border-stone-300 px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-                          >
-                            <option value="">—</option>
-                            {getTopicsForField(deck?.fieldOfInterest ?? null).map((top) => (
-                              <option key={top} value={top}>
-                                {top}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                          <div className="flex items-center gap-2">
-                            <label className="shrink-0 text-sm text-stone-600" htmlFor="deck-content-lang-1">
-                              {t("deck.contentLanguage")}:
-                            </label>
-                            <select
-                              id="deck-content-lang-1"
-                              data-testid="deck-language-select"
-                              value={deckFirstContentLang}
-                              title={t("deck.contentLanguageHint")}
-                              aria-label={t("deck.contentLanguage")}
-                              aria-invalid={!deckContentLanguagesClassificationComplete(deck?.contentLanguage ?? null)}
-                              onChange={(e) => {
-                                const raw = e.target.value;
-                                const nextFirst =
-                                  raw === "" ? null : (raw as DeckContentLanguageCode);
-                                const prev = parseDeckContentLanguages(deck?.contentLanguage ?? null);
-                                const oldSecond = prev[1] ?? null;
-                                const second =
-                                  nextFirst && oldSecond && oldSecond !== nextFirst
-                                    ? oldSecond
-                                    : null;
-                                updateDeckLocal({
-                                  contentLanguage: serializeDeckContentLanguages([nextFirst, second]),
-                                });
-                              }}
-                              className="w-[11rem] max-w-[min(11rem,100vw-6rem)] rounded border border-stone-300 px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-                            >
-                              <option value="">—</option>
-                              {DECK_CONTENT_LANGUAGE_CODES.map((code) => (
-                                <option key={code} value={code}>
-                                  {t(`deck.contentLang_${code}`)}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <label className="shrink-0 text-sm text-stone-600" htmlFor="deck-content-lang-2">
-                              {t("community.secondLanguageFilter")}:
-                            </label>
-                            <select
-                              id="deck-content-lang-2"
-                              data-testid="deck-language-select-second"
-                              value={deckSecondContentLang}
-                              disabled={!deckFirstContentLang}
-                              title={t("deck.contentLanguageSecondHint")}
-                              aria-label={t("community.secondLanguageFilter")}
-                              onChange={(e) => {
-                                const raw = e.target.value;
-                                const first = deckFirstContentLang
-                                  ? (deckFirstContentLang as DeckContentLanguageCode)
-                                  : null;
-                                const second =
-                                  raw === "" || raw === deckFirstContentLang
-                                    ? null
-                                    : (raw as DeckContentLanguageCode);
-                                updateDeckLocal({
-                                  contentLanguage: serializeDeckContentLanguages([first, second]),
-                                });
-                              }}
-                              className="w-[11rem] max-w-[min(11rem,100vw-6rem)] rounded border border-stone-300 px-2 py-1.5 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400"
-                            >
-                              <option value="">{t("deck.contentLanguageSecondNone")}</option>
-                              {DECK_CONTENT_LANGUAGE_CODES.filter((code) => code !== deckFirstContentLang).map(
-                                (code) => (
-                                  <option key={code} value={code}>
-                                    {t(`deck.contentLang_${code}`)}
-                                  </option>
-                                )
-                              )}
-                            </select>
-                          </div>
-                        </div>
+
+                {orgMemberships.length > 0 ? (
+                  <div className="border-t border-stone-200 pt-4 text-sm text-stone-700">
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-sky-900">
+                      {t("school.sectionTitle")}
+                    </p>
+                    <p className="m-0 text-stone-600">{t("school.sectionHint")}</p>
+                    {orgMemberships.length > 1 ? (
+                      <div className="mt-3">
+                        <label className="mb-1 block text-stone-600" htmlFor="school-org-select">
+                          {t("school.orgLabel")}
+                        </label>
+                        <select
+                          id="school-org-select"
+                          value={schoolOrgId}
+                          onChange={(e) => onSelectSchoolOrg(e.target.value)}
+                          className="w-full max-w-md rounded border border-stone-300 px-2 py-1.5 text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                        >
+                          {orgMemberships.map((m) => (
+                            <option key={m.organizationId} value={m.organizationId}>
+                              {m.name}
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                    </fieldset>
-                    {!isClassificationComplete(deck) ? (
-                      <p className="text-sm text-amber-800">{t("deck.shareIncompleteHint")}</p>
+                    ) : null}
+                    {schoolOrgId ? (
+                      <p className="mt-2 text-xs text-stone-500">
+                        {t("school.yourRole", {
+                          role:
+                            orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role ?? "—",
+                        })}
+                      </p>
+                    ) : null}
+                    {isDeckOwner ? (
+                      <>
+                        <fieldset className="mt-3 space-y-2 rounded-lg border border-sky-200/80 bg-sky-50/40 px-3 py-2">
+                          <legend className="px-1 text-xs font-medium text-sky-900">
+                            {t("school.shareVisibility")}
+                          </legend>
+                          <label className="flex cursor-pointer items-center gap-2">
+                            <input
+                              type="radio"
+                              name="school-vis"
+                              checked={schoolVisibilityChoice === "school"}
+                              onChange={() => setSchoolVisibilityChoice("school")}
+                              className="border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                            />
+                            {t("school.visibilitySchool")}
+                          </label>
+                          <label
+                            className={`flex items-center gap-2 ${
+                              orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role ===
+                              "student"
+                                ? "cursor-not-allowed opacity-60"
+                                : "cursor-pointer"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="school-vis"
+                              checked={schoolVisibilityChoice === "teachers_only"}
+                              disabled={
+                                orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role ===
+                                "student"
+                              }
+                              onChange={() => setSchoolVisibilityChoice("teachers_only")}
+                              title={t("school.roleRequiredTeachersOnly")}
+                              className="border-stone-300 text-pstudy-primary focus:ring-pstudy-primary disabled:opacity-50"
+                            />
+                            {t("school.visibilityTeachersOnly")}
+                          </label>
+                        </fieldset>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={schoolBusy || !schoolOrgId}
+                            onClick={() => void handleSaveSchoolShare()}
+                            className="btn-primary text-sm disabled:opacity-50"
+                          >
+                            {schoolBusy ? t("deck.saving") : t("school.saveShare")}
+                          </button>
+                          {schoolShare ? (
+                            <button
+                              type="button"
+                              disabled={schoolBusy}
+                              onClick={() => void handleRemoveSchoolShare()}
+                              className="btn-secondary text-sm disabled:opacity-50"
+                            >
+                              {t("school.removeShare")}
+                            </button>
+                          ) : null}
+                        </div>
+                      </>
+                    ) : (
+                      <p className="mt-3 text-stone-600">{t("school.ownerReadOnly")}</p>
+                    )}
+                    {schoolShare ? (
+                      <div className="mt-3 rounded-md bg-stone-50 px-3 py-2 text-stone-700">
+                        {schoolShare.visibility === "school" && !schoolShare.verifiedAt ? (
+                          <p className="m-0">{t("school.studentsNeedVerification")}</p>
+                        ) : null}
+                        {schoolShare.visibility === "school" && schoolShare.verifiedAt ? (
+                          <p className="m-0 font-medium text-emerald-800">{t("school.verifiedBadge")}</p>
+                        ) : null}
+                        {schoolShare.visibility === "teachers_only" ? (
+                          <p className="m-0">{t("school.visibilityTeachersOnly")}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {schoolShare?.visibility === "school" &&
+                    !schoolShare.verifiedAt &&
+                    (orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role === "teacher" ||
+                      orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role === "admin") ? (
+                      <button
+                        type="button"
+                        disabled={schoolBusy}
+                        onClick={() => void handleVerifySchoolFromDeck()}
+                        className="btn-secondary mt-3 text-sm disabled:opacity-50"
+                      >
+                        {t("school.verifyDeck")}
+                      </button>
                     ) : null}
                   </div>
                 ) : null}
               </div>
             </details>
             )}
-            {orgMemberships.length > 0 ? (
-              <details
-                className="w-full max-w-3xl rounded border border-sky-200 bg-white px-3 py-2"
-                open={schoolPanelOpen}
-                onToggle={(e) => setSchoolPanelOpen(e.currentTarget.open)}
-              >
-                <summary className="cursor-pointer select-none text-sm font-medium text-sky-900 outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2">
-                  {t("school.sectionTitle")}
-                </summary>
-                <div className="mt-3 space-y-3 text-sm text-stone-700">
-                  <p className="m-0 text-stone-600">{t("school.sectionHint")}</p>
-                  {orgMemberships.length > 1 ? (
-                    <div>
-                      <label className="mb-1 block text-stone-600" htmlFor="school-org-select">
-                        {t("school.orgLabel")}
-                      </label>
-                      <select
-                        id="school-org-select"
-                        value={schoolOrgId}
-                        onChange={(e) => onSelectSchoolOrg(e.target.value)}
-                        className="w-full max-w-md rounded border border-stone-300 px-2 py-1.5 text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-                      >
-                        {orgMemberships.map((m) => (
-                          <option key={m.organizationId} value={m.organizationId}>
-                            {m.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  ) : null}
-                  {schoolOrgId ? (
-                    <p className="text-xs text-stone-500">
-                      {t("school.yourRole", {
-                        role:
-                          orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role ?? "—",
-                      })}
-                    </p>
-                  ) : null}
-                  {isDeckOwner ? (
-                    <>
-                      <fieldset className="space-y-2 rounded-lg border border-stone-200 px-3 py-2">
-                        <legend className="px-1 text-xs font-medium text-stone-600">
-                          {t("school.shareVisibility")}
-                        </legend>
-                        <label className="flex cursor-pointer items-center gap-2">
-                          <input
-                            type="radio"
-                            name="school-vis"
-                            checked={schoolVisibilityChoice === "school"}
-                            onChange={() => setSchoolVisibilityChoice("school")}
-                            className="border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
-                          />
-                          {t("school.visibilitySchool")}
-                        </label>
-                        <label
-                          className={`flex items-center gap-2 ${
-                            orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role ===
-                            "student"
-                              ? "cursor-not-allowed opacity-60"
-                              : "cursor-pointer"
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="school-vis"
-                            checked={schoolVisibilityChoice === "teachers_only"}
-                            disabled={
-                              orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role ===
-                              "student"
-                            }
-                            onChange={() => setSchoolVisibilityChoice("teachers_only")}
-                            title={t("school.roleRequiredTeachersOnly")}
-                            className="border-stone-300 text-pstudy-primary focus:ring-pstudy-primary disabled:opacity-50"
-                          />
-                          {t("school.visibilityTeachersOnly")}
-                        </label>
-                      </fieldset>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          disabled={schoolBusy || !schoolOrgId}
-                          onClick={() => void handleSaveSchoolShare()}
-                          className="btn-primary text-sm disabled:opacity-50"
-                        >
-                          {schoolBusy ? t("deck.saving") : t("school.saveShare")}
-                        </button>
-                        {schoolShare ? (
-                          <button
-                            type="button"
-                            disabled={schoolBusy}
-                            onClick={() => void handleRemoveSchoolShare()}
-                            className="btn-secondary text-sm disabled:opacity-50"
-                          >
-                            {t("school.removeShare")}
-                          </button>
-                        ) : null}
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-stone-600">{t("school.ownerReadOnly")}</p>
-                  )}
-                  {schoolShare ? (
-                    <div className="rounded-md bg-stone-50 px-3 py-2 text-stone-700">
-                      {schoolShare.visibility === "school" && !schoolShare.verifiedAt ? (
-                        <p className="m-0">{t("school.studentsNeedVerification")}</p>
-                      ) : null}
-                      {schoolShare.visibility === "school" && schoolShare.verifiedAt ? (
-                        <p className="m-0 font-medium text-emerald-800">{t("school.verifiedBadge")}</p>
-                      ) : null}
-                      {schoolShare.visibility === "teachers_only" ? (
-                        <p className="m-0">{t("school.visibilityTeachersOnly")}</p>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  {schoolShare?.visibility === "school" &&
-                  !schoolShare.verifiedAt &&
-                  (orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role === "teacher" ||
-                    orgMemberships.find((m) => m.organizationId === schoolOrgId)?.role === "admin") ? (
-                    <button
-                      type="button"
-                      disabled={schoolBusy}
-                      onClick={() => void handleVerifySchoolFromDeck()}
-                      className="btn-secondary text-sm disabled:opacity-50"
-                    >
-                      {t("school.verifyDeck")}
-                    </button>
-                  ) : null}
-                </div>
-              </details>
-            ) : null}
           </div>
         </div>
       </header>
@@ -991,27 +966,6 @@ export default function DeckEditorPage() {
               </div>
             ) : null}
           </div>
-          {deck?.isPublic && deck.publicationStatus === "draft" ? (
-            <>
-              <button
-                type="button"
-                onClick={() => setReviewInviteOpen(true)}
-                className="btn-secondary text-sm"
-              >
-                {t("deckReview.peerReview")}
-              </button>
-              {deck.reviewStatus === "revise_and_resubmit" && !deckLocked ? (
-                <button
-                  type="button"
-                  disabled={resubmittingReview}
-                  onClick={() => void handleResubmitForReview()}
-                  className="btn-primary text-sm disabled:opacity-50"
-                >
-                  {resubmittingReview ? t("common.loading") : t("deckReview.resubmitForReview")}
-                </button>
-              ) : null}
-            </>
-          ) : null}
           </div>
         </div>
 

@@ -82,11 +82,15 @@
     "shared": "Condiviso",
     "private": "Privato",
     "deleteDeckConfirm": "Eliminare questo mazzo?",
-    "untitledDeck": "Mazzo senza titolo"
+    "untitledDeck": "Mazzo senza titolo",
+    "filterDecksHint": "Filtra per titolo, area, argomento e lingua del mazzo: le stesse opzioni di PstudyCommunity.",
+    "noDecksMatchFilters": "Nessun mazzo corrisponde a questi filtri. Modifica i criteri o azzera i filtri.",
+    "clearDeckFilters": "Azzera filtri"
   },
   "deck": {
     "backToDashboard": "← I miei mazzi",
     "editDeck": "Modifica mazzo",
+    "deckSetup": "Impostazioni mazzo",
     "field": "Area",
     "topic": "Argomento",
     "checkedCannotSave": "Questo mazzo è verificato e non può più essere modificato. Duplicalo per apportare modifiche.",

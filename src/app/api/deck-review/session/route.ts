@@ -78,6 +78,8 @@ export async function GET(request: NextRequest) {
     id: d.id,
     title: d.title,
     items,
+    itemCount: items.length,
+    itemsLoaded: true,
     createdAt: d.created_at,
     updatedAt: d.updated_at,
     isPublic: d.is_public ?? false,

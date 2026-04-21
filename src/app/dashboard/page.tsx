@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Deck } from "@/types/pstudy";
@@ -12,7 +12,12 @@ import {
   deleteDeck as deleteDeckDb,
   mergeDecksIntoNew,
   duplicateOwnedDeck,
+  invalidateOwnedDecksListCache,
+  type PublicDecksFilters,
 } from "@/lib/supabase/decks";
+import { filterDecksByPublicDeckFilters } from "@/lib/deck-list-filters";
+import { FIELDS_OF_INTEREST, getTopicsForField, getAllTopics } from "@/lib/deck-attributes";
+import { DECK_CONTENT_LANGUAGE_CODES, parseDeckContentLanguages } from "@/lib/deck-content-language";
 import { useToast } from "@/components/Toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Logo } from "@/components/Logo";
@@ -33,6 +38,89 @@ export default function DashboardPage() {
   const [duplicatingDeckId, setDuplicatingDeckId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [fieldFilter, setFieldFilter] = useState<string>("");
+  const [topicFilter, setTopicFilter] = useState<string>("");
+  const [languageFilters, setLanguageFilters] = useState<string[]>([]);
+  const [includeNoLanguage, setIncludeNoLanguage] = useState(true);
+  const [langMenuOpen, setLangMenuOpen] = useState(false);
+  const langMenuRef = useRef<HTMLDivElement>(null);
+
+  function toggleLanguageFilter(code: string) {
+    setLanguageFilters((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+    );
+  }
+
+  const languageSummary = useMemo(() => {
+    if (languageFilters.length === 0) return t("community.allLanguages");
+    const names = languageFilters.map((c) => t(`deck.contentLang_${c}`));
+    if (names.length === 1) return names[0]!;
+    if (names.length === 2) return `${names[0]}, ${names[1]}`;
+    return `${names[0]}, ${names[1]} ${t("community.languagesCountMore", { rest: names.length - 2 })}`;
+  }, [languageFilters, t]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchInput), 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    if (!langMenuOpen) return;
+    function onDocMouseDown(e: MouseEvent) {
+      if (langMenuRef.current && !langMenuRef.current.contains(e.target as Node)) {
+        setLangMenuOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setLangMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [langMenuOpen]);
+
+  const publicDeckFilters: PublicDecksFilters | undefined = useMemo(() => {
+    const f: PublicDecksFilters = {};
+    if (debouncedSearch.trim()) f.search = debouncedSearch.trim();
+    if (fieldFilter) f.fieldOfInterest = fieldFilter;
+    if (topicFilter) f.topic = topicFilter;
+    if (languageFilters.length > 0) {
+      f.languages = languageFilters;
+      f.includeUnspecifiedLanguage = includeNoLanguage;
+    }
+    const hasAny =
+      !!f.search ||
+      !!f.fieldOfInterest ||
+      !!f.topic ||
+      (f.languages && f.languages.length > 0);
+    return hasAny ? f : undefined;
+  }, [
+    debouncedSearch,
+    fieldFilter,
+    topicFilter,
+    languageFilters,
+    includeNoLanguage,
+  ]);
+
+  const visibleDecks = useMemo(
+    () => filterDecksByPublicDeckFilters(decks, publicDeckFilters),
+    [decks, publicDeckFilters]
+  );
+
+  function clearDeckFilters() {
+    setSearchInput("");
+    setDebouncedSearch("");
+    setFieldFilter("");
+    setTopicFilter("");
+    setLanguageFilters([]);
+    setIncludeNoLanguage(true);
+    setLangMenuOpen(false);
+  }
 
   useEffect(() => {
     async function load() {
@@ -144,6 +232,7 @@ export default function DashboardPage() {
   }
 
   async function handleSignOut() {
+    invalidateOwnedDecksListCache();
     const supabase = createClient();
     await supabase.auth.signOut();
     router.replace("/login");
@@ -245,6 +334,128 @@ export default function DashboardPage() {
           <p className="mb-4 text-red-600">{error}</p>
         )}
 
+        {decks.length > 0 ? (
+          <div className="mb-6">
+            <div className="mb-2">
+              <ContextHint>
+                <p className="m-0 text-sm text-stone-600">{t("dashboard.filterDecksHint")}</p>
+              </ContextHint>
+            </div>
+            <div className="flex flex-wrap items-end gap-4">
+              <div>
+                <label className="mb-1 block text-sm text-stone-600">{t("community.searchByTitle")}</label>
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  placeholder={t("community.searchPlaceholder")}
+                  className="w-64 max-w-full rounded-lg border border-stone-300 px-4 py-2 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-stone-600">{t("community.fieldOfInterest")}</label>
+                <select
+                  value={fieldFilter}
+                  onChange={(e) => {
+                    setFieldFilter(e.target.value);
+                    setTopicFilter("");
+                  }}
+                  className="rounded-lg border border-stone-300 px-4 py-2 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                >
+                  <option value="">{t("community.allFields")}</option>
+                  {FIELDS_OF_INTEREST.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm text-stone-600">{t("community.topic")}</label>
+                <select
+                  value={topicFilter}
+                  onChange={(e) => setTopicFilter(e.target.value)}
+                  className="rounded-lg border border-stone-300 px-4 py-2 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                >
+                  <option value="">{t("community.allTopics")}</option>
+                  {(fieldFilter ? getTopicsForField(fieldFilter) : getAllTopics()).map((top) => (
+                    <option key={top} value={top}>
+                      {top}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="relative" ref={langMenuRef}>
+                <span className="mb-1 block text-sm text-stone-600" id="dashboard-deck-lang-label">
+                  {t("deck.contentLanguage")}
+                </span>
+                <button
+                  type="button"
+                  id="dashboard-deck-lang-trigger"
+                  aria-labelledby="dashboard-deck-lang-label"
+                  aria-haspopup="dialog"
+                  aria-expanded={langMenuOpen}
+                  title={t("community.deckLanguageFilterHint")}
+                  className="flex w-[min(12rem,calc(100vw-8rem))] min-w-[10rem] items-center justify-between gap-2 rounded-lg border border-stone-300 bg-white px-4 py-2 text-left text-sm text-stone-900 shadow-sm hover:border-stone-400 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                  onClick={() => setLangMenuOpen((o) => !o)}
+                >
+                  <span className="min-w-0 flex-1 truncate">{languageSummary}</span>
+                  <span className="shrink-0 text-stone-400" aria-hidden>
+                    ▾
+                  </span>
+                </button>
+                {langMenuOpen ? (
+                  <div
+                    className="absolute left-0 z-40 mt-1 max-h-[min(22rem,calc(100vh-8rem))] w-max min-w-full max-w-[18rem] overflow-hidden rounded-lg border border-stone-200 bg-white py-2 shadow-lg"
+                    role="dialog"
+                    aria-label={t("deck.contentLanguage")}
+                  >
+                    <div className="max-h-48 overflow-y-auto px-2">
+                      {DECK_CONTENT_LANGUAGE_CODES.map((code) => (
+                        <label
+                          key={code}
+                          className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-stone-700 hover:bg-stone-50"
+                        >
+                          <input
+                            type="checkbox"
+                            className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                            checked={languageFilters.includes(code)}
+                            onChange={() => toggleLanguageFilter(code)}
+                          />
+                          {t(`deck.contentLang_${code}`)}
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mt-1 space-y-2 border-t border-stone-100 px-3 pt-2">
+                      <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-600">
+                        <input
+                          type="checkbox"
+                          className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                          checked={includeNoLanguage}
+                          onChange={(e) => setIncludeNoLanguage(e.target.checked)}
+                          disabled={languageFilters.length === 0}
+                        />
+                        {t("community.includeNoLanguage")}
+                      </label>
+                      <button
+                        type="button"
+                        className="text-sm font-medium text-pstudy-primary hover:underline disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={languageFilters.length === 0}
+                        onClick={() => {
+                          setLanguageFilters([]);
+                          setIncludeNoLanguage(true);
+                        }}
+                      >
+                        {t("community.clearLanguages")}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {mergeMode ? (
           <>
             <div className="mb-4 flex items-center gap-2">
@@ -321,101 +532,128 @@ export default function DashboardPage() {
               </Link>
             </div>
           </div>
+        ) : visibleDecks.length === 0 ? (
+          <div className="card text-center text-stone-600">
+            <p className="mb-4">{t("dashboard.noDecksMatchFilters")}</p>
+            <button type="button" onClick={clearDeckFilters} className="btn-primary">
+              {t("dashboard.clearDeckFilters")}
+            </button>
+          </div>
         ) : (
           <ul className="space-y-3">
-            {decks.map((deck) => (
-              <li
-                key={deck.id}
-                className="card flex items-center justify-between gap-3"
-              >
-                {mergeMode ? (
-                  <input
-                    type="checkbox"
-                    className="mt-1 h-4 w-4 shrink-0 rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
-                    checked={selectedDeckIds.includes(deck.id)}
-                    onChange={() => toggleDeckSelected(deck.id)}
-                    aria-label={t("dashboard.mergeDecksCheckboxAria", { title: deck.title })}
-                  />
-                ) : (
-                  <span className="w-4 shrink-0" aria-hidden />
-                )}
-                <div className="min-w-0 flex-1">
-                  <Link
-                    href={`/deck/${deck.id}`}
-                    className="font-semibold text-pstudy-primary hover:underline"
-                  >
-                    {deck.title}
-                  </Link>
-                  <p className="text-sm text-stone-500">
-                    {deck.items.length} {t("dashboard.items", { count: deck.items.length })}
-                    <span
-                      className={`ml-2 rounded px-1.5 py-0.5 text-xs font-medium ${
-                        deck.isPublic
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-stone-100 text-stone-600"
-                      }`}
-                    >
-                      {deck.isPublic ? t("dashboard.shared") : t("dashboard.private")}
-                    </span>
-                    {deck.isPublic ? (
-                      deck.publicationStatus === "checked" ? (
-                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+            {visibleDecks.map((deck) => {
+              const deckLangCodes = parseDeckContentLanguages(deck.contentLanguage);
+              const deckLangLabelList = deckLangCodes
+                .map((c) => t(`deck.contentLang_${c}`))
+                .join(t("deck.contentLanguagePairSeparator"));
+              return (
+                <li key={deck.id} className="card flex items-center justify-between gap-3">
+                  {mergeMode ? (
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 shrink-0 self-start rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                      checked={selectedDeckIds.includes(deck.id)}
+                      onChange={() => toggleDeckSelected(deck.id)}
+                      aria-label={t("dashboard.mergeDecksCheckboxAria", { title: deck.title })}
+                    />
+                  ) : null}
+                  <div className="min-w-0 flex-1">
+                    <div>
+                      <Link
+                        href={`/deck/${deck.id}`}
+                        className="font-semibold text-stone-900 hover:text-pstudy-primary hover:underline"
+                      >
+                        {deck.title}
+                      </Link>
+                      {deckLangCodes.length > 0 ? (
+                        <span className="inline-flex flex-wrap items-center gap-1 align-middle">
+                          {deckLangCodes.map((code, i) => (
+                            <span
+                              key={`${deck.id}-${code}-${i}`}
+                              className={`rounded-md border border-teal-200 bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-900 ${i === 0 ? "ml-2" : ""}`}
+                              title={t("community.languageBadgesAria", { list: deckLangLabelList })}
+                            >
+                              {t(`deck.contentLang_${code}`)}
+                            </span>
+                          ))}
+                        </span>
+                      ) : null}
+                      <span
+                        className={`ml-2 align-middle rounded px-1.5 py-0.5 text-xs font-medium ${
+                          deck.isPublic
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-stone-100 text-stone-600"
+                        }`}
+                      >
+                        {deck.isPublic ? t("dashboard.shared") : t("dashboard.private")}
+                      </span>
+                      {deck.isPublic && deck.publicationStatus === "checked" ? (
+                        <span className="ml-2 align-middle rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
                           {t("deckReview.badgeChecked")}
                         </span>
-                      ) : deck.publicationStatus === "superseded" ? (
-                        <span className="ml-2 rounded-full bg-stone-200 px-2 py-0.5 text-xs font-medium text-stone-700">
+                      ) : deck.isPublic && deck.publicationStatus === "superseded" ? (
+                        <span className="ml-2 align-middle rounded-full bg-stone-200 px-2 py-0.5 text-xs font-medium text-stone-700">
                           {t("deckReview.badgeSuperseded")}
                         </span>
-                      ) : (
-                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
+                      ) : deck.isPublic ? (
+                        <span className="ml-2 align-middle rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
                           {t("deckReview.badgeDraft")}
                         </span>
-                      )
-                    ) : null}
-                    {deck.isPublic &&
-                    deck.publicationStatus === "draft" &&
-                    deck.reviewStatus &&
-                    deck.reviewStatus !== "none" ? (
-                      <span
-                        className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-900"
-                        title={t("deckReview.reviewStatusHint")}
+                      ) : null}
+                      {deck.isPublic &&
+                      deck.publicationStatus === "draft" &&
+                      deck.reviewStatus &&
+                      deck.reviewStatus !== "none" ? (
+                        <span
+                          className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-900"
+                          title={t("deckReview.reviewStatusHint")}
+                        >
+                          {t(`deckReview.reviewStatus_${deck.reviewStatus}`)}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="text-sm text-stone-500">
+                      {deck.itemCount} {t("dashboard.items", { count: deck.itemCount })}
+                      {(deck.fieldOfInterest || deck.topic) && (
+                        <span className="ml-2">
+                          · {[deck.fieldOfInterest, deck.topic].filter(Boolean).join(" / ")}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Link
+                      href={`/practice/${deck.id}`}
+                      className="btn-secondary text-sm"
+                    >
+                      {t("common.practice")}
+                    </Link>
+                    {!mergeMode && deck.publicationStatus === "checked" ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDuplicateForEdit(
+                            deck.id,
+                            deck.publicationStatus === "checked" && !!deck.isPublic
+                          )
+                        }
+                        disabled={duplicatingDeckId !== null}
+                        className="btn-secondary text-sm disabled:opacity-60"
                       >
-                        {t(`deckReview.reviewStatus_${deck.reviewStatus}`)}
-                      </span>
+                        {duplicatingDeckId === deck.id ? t("community.copying") : t("deck.duplicateToEdit")}
+                      </button>
                     ) : null}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <Link
-                    href={`/practice/${deck.id}`}
-                    className="btn-secondary text-sm"
-                  >
-                    {t("common.practice")}
-                  </Link>
-                  {!mergeMode && deck.publicationStatus === "checked" ? (
                     <button
                       type="button"
-                      onClick={() =>
-                        handleDuplicateForEdit(
-                          deck.id,
-                          deck.publicationStatus === "checked" && !!deck.isPublic
-                        )
-                      }
-                      disabled={duplicatingDeckId !== null}
-                      className="btn-secondary text-sm disabled:opacity-60"
+                      onClick={() => handleDeleteDeck(deck.id)}
+                      className="rounded px-2 py-1 text-sm text-red-600 hover:bg-red-50"
                     >
-                      {duplicatingDeckId === deck.id ? t("community.copying") : t("deck.duplicateToEdit")}
+                      {t("common.delete")}
                     </button>
-                  ) : null}
-                  <button
-                    onClick={() => handleDeleteDeck(deck.id)}
-                    className="rounded px-2 py-1 text-sm text-red-600 hover:bg-red-50"
-                  >
-                    {t("common.delete")}
-                  </button>
-                </div>
-              </li>
-            ))}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </main>

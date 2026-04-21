@@ -135,7 +135,7 @@ export default function ExamsListPage() {
                     {r.exam_type === "multiple-choice"
                       ? t("exam.typeMultipleChoice")
                       : `${t("exam.typeStraightAnswer")} (${r.grading_mode === "exact-match" ? t("exam.gradingExact") : t("exam.gradingLenient")})`} ·{" "}
-                    {t("exam.invites")}: {r.invite_count} · {t("exam.items", { count: r.deck.items.length })}
+                    {t("exam.invites")}: {r.invite_count} · {t("exam.items", { count: r.deck.itemCount })}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">

@@ -65,8 +65,14 @@ export async function createExamAssignment(
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Not logged in");
 
-  const deck = await fetchDeck(deckId);
-  if (!deck) throw new Error("Deck not found");
+  const { data: deckRow, error: deckErr } = await supabase
+    .from("decks")
+    .select("id")
+    .eq("id", deckId)
+    .eq("owner_id", user.id)
+    .maybeSingle();
+  if (deckErr) throw toError(deckErr);
+  if (!deckRow) throw new Error("Deck not found");
 
   const { valid: emails, invalid } = parseEmailLines(emailLines);
   if (invalid.length > 0) {
@@ -112,7 +118,7 @@ export async function createExamAssignment(
 }
 
 export type ExamAssignmentSummary = ExamAssignmentRow & {
-  deck: Pick<Deck, "id" | "title" | "items">;
+  deck: Pick<Deck, "id" | "title" | "itemCount">;
   invite_count: number;
 };
 
@@ -132,7 +138,9 @@ export async function fetchMyExamAssignments(): Promise<ExamAssignmentSummary[]>
   if (error) throw toError(error);
   if (!rows?.length) return [];
 
-  const assignmentIds = (rows as ExamAssignmentRow[]).map((r) => r.id);
+  const list = rows as ExamAssignmentRow[];
+
+  const assignmentIds = list.map((r) => r.id);
   const countMap = new Map<string, number>();
   if (assignmentIds.length > 0) {
     const { data: inviteRows } = await supabase
@@ -146,13 +154,46 @@ export async function fetchMyExamAssignments(): Promise<ExamAssignmentSummary[]>
     }
   }
 
+  const uniqueDeckIds = [...new Set(list.map((r) => r.deck_id))];
+  const { data: deckRows, error: deckErr } = await supabase
+    .from("decks")
+    .select("id, title")
+    .in("id", uniqueDeckIds)
+    .eq("owner_id", user.id);
+  if (deckErr) throw toError(deckErr);
+
+  const deckMeta = new Map<string, { title: string }>();
+  for (const d of deckRows ?? []) {
+    deckMeta.set(d.id as string, { title: d.title as string });
+  }
+
+  const countResults = await Promise.all(
+    uniqueDeckIds.map((deckId) =>
+      supabase
+        .from("items")
+        .select("id", { count: "exact", head: true })
+        .eq("deck_id", deckId)
+    )
+  );
+  const itemCountByDeck = new Map<string, number>();
+  for (let i = 0; i < uniqueDeckIds.length; i++) {
+    const deckId = uniqueDeckIds[i]!;
+    const { count, error: cErr } = countResults[i]!;
+    if (cErr) throw toError(cErr);
+    itemCountByDeck.set(deckId, count ?? 0);
+  }
+
   const out: ExamAssignmentSummary[] = [];
-  for (const r of rows as ExamAssignmentRow[]) {
-    const deck = await fetchDeck(r.deck_id);
-    if (!deck) continue;
+  for (const r of list) {
+    const meta = deckMeta.get(r.deck_id);
+    if (!meta) continue;
     out.push({
       ...r,
-      deck: { id: deck.id, title: deck.title, items: deck.items },
+      deck: {
+        id: r.deck_id,
+        title: meta.title,
+        itemCount: itemCountByDeck.get(r.deck_id) ?? 0,
+      },
       invite_count: countMap.get(r.id) ?? 0,
     });
   }

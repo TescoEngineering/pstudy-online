@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useTranslation } from "@/lib/i18n";
-import { fetchDecks } from "@/lib/supabase/decks";
+import { fetchDeck, fetchDecks } from "@/lib/supabase/decks";
 import { createExamAssignment } from "@/lib/supabase/exams";
 import type { Deck } from "@/types/pstudy";
 import {
@@ -37,17 +37,21 @@ function NewExamForm() {
   const [emails, setEmails] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [fullDeck, setFullDeck] = useState<Deck | null>(null);
+  const [fullDeckLoading, setFullDeckLoading] = useState(false);
 
-  const selectedDeck = decks.find((d) => d.id === deckId) ?? null;
+  const listRow = decks.find((d) => d.id === deckId) ?? null;
   const issues =
-    selectedDeck && selectedDeck.items.length >= 2
+    fullDeck && fullDeck.items.length >= 2
       ? examType === "multiple-choice"
-        ? validateDeckForMcExam(selectedDeck, promptMode)
-        : validateDeckForStraightExam(selectedDeck, promptMode)
+        ? validateDeckForMcExam(fullDeck, promptMode)
+        : validateDeckForStraightExam(fullDeck, promptMode)
       : [];
-  const twoOrMoreItems = selectedDeck ? selectedDeck.items.length >= 2 : false;
+  const twoOrMoreItems = fullDeck ? fullDeck.items.length >= 2 : false;
   const valid =
-    selectedDeck &&
+    !fullDeckLoading &&
+    !!listRow &&
+    fullDeck &&
     twoOrMoreItems &&
     issues.length === 0;
 
@@ -173,7 +177,7 @@ function NewExamForm() {
               >
                 {decks.map((d) => (
                   <option key={d.id} value={d.id}>
-                    {d.title} ({d.items.length} {t("dashboard.items", { count: d.items.length })})
+                    {d.title} ({d.itemCount} {t("dashboard.items", { count: d.itemCount })})
                   </option>
                 ))}
               </select>
@@ -262,7 +266,11 @@ function NewExamForm() {
               <p className="mb-2 text-sm font-medium text-stone-800">
                 {t("exam.checkDeck")}
               </p>
-              {!selectedDeck ? null : !twoOrMoreItems ? (
+              {!listRow ? null : fullDeckLoading ? (
+                <p className="text-sm text-stone-600">{t("common.loading")}</p>
+              ) : !fullDeck ? (
+                <p className="text-sm text-red-600">{t("common.somethingWentWrong")}</p>
+              ) : !twoOrMoreItems ? (
                 <p className="text-sm text-red-600">{t("exam.needTwoItems")}</p>
               ) : issues.length === 0 ? (
                 <p className="text-sm text-emerald-700">{t("exam.validationOk")}</p>

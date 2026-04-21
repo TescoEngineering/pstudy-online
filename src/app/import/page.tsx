@@ -84,6 +84,8 @@ async function doImport(
     const deckWithItems: Deck = {
       ...newDeck,
       items: itemsWithIds,
+      itemCount: itemsWithIds.length,
+      itemsLoaded: true,
     };
 
     try {

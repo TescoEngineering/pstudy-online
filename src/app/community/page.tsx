@@ -24,7 +24,6 @@ export default function CommunityPage() {
   const [fieldFilter, setFieldFilter] = useState<string>("");
   const [topicFilter, setTopicFilter] = useState<string>("");
   const [languageFilters, setLanguageFilters] = useState<string[]>([]);
-  const [secondLanguageFilter, setSecondLanguageFilter] = useState<string>("");
   const [includeNoLanguage, setIncludeNoLanguage] = useState(true);
   const [langMenuOpen, setLangMenuOpen] = useState(false);
   const langMenuRef = useRef<HTMLDivElement>(null);
@@ -66,9 +65,6 @@ export default function CommunityPage() {
         if (languageFilters.length > 0) {
           filters.languages = languageFilters;
           filters.includeUnspecifiedLanguage = includeNoLanguage;
-        }
-        if (secondLanguageFilter) {
-          filters.secondLanguage = secondLanguageFilter;
         }
         const data = await fetchPublicDecks(Object.keys(filters).length ? filters : undefined);
         setDecks(data);
@@ -238,10 +234,9 @@ export default function CommunityPage() {
                     <button
                       type="button"
                       className="text-sm font-medium text-pstudy-primary hover:underline disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={languageFilters.length === 0 && !secondLanguageFilter}
+                      disabled={languageFilters.length === 0}
                       onClick={() => {
                         setLanguageFilters([]);
-                        setSecondLanguageFilter("");
                         setIncludeNoLanguage(true);
                       }}
                     >
@@ -250,25 +245,6 @@ export default function CommunityPage() {
                   </div>
                 </div>
               ) : null}
-            </div>
-            <div>
-              <label htmlFor="community-second-lang" className="mb-1 block text-sm text-stone-600">
-                {t("community.secondLanguageFilter")}
-              </label>
-              <select
-                id="community-second-lang"
-                value={secondLanguageFilter}
-                onChange={(e) => setSecondLanguageFilter(e.target.value)}
-                title={t("community.secondLanguageFilterHint")}
-                className="rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-              >
-                <option value="">{t("community.secondLanguageFilterAny")}</option>
-                {DECK_CONTENT_LANGUAGE_CODES.map((code) => (
-                  <option key={code} value={code}>
-                    {t(`deck.contentLang_${code}`)}
-                  </option>
-                ))}
-              </select>
             </div>
           </div>
         </div>
@@ -318,7 +294,7 @@ export default function CommunityPage() {
                     </span>
                   )}
                   <p className="text-sm text-stone-500">
-                    {deck.items.length} {t("dashboard.items", { count: deck.items.length })}
+                    {deck.itemCount} {t("dashboard.items", { count: deck.itemCount })}
                     {(deck.fieldOfInterest || deck.topic) && (
                       <span className="ml-2">
                         · {[deck.fieldOfInterest, deck.topic].filter(Boolean).join(" / ")}

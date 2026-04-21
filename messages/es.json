@@ -82,11 +82,15 @@
     "shared": "Compartido",
     "private": "Privado",
     "deleteDeckConfirm": "¿Eliminar este mazo?",
-    "untitledDeck": "Mazo sin título"
+    "untitledDeck": "Mazo sin título",
+    "filterDecksHint": "Filtre por título, área, tema e idioma del mazo: las mismas opciones que en PstudyCommunity.",
+    "noDecksMatchFilters": "Ningún mazo cumple estos filtros. Pruebe otros criterios o borre los filtros.",
+    "clearDeckFilters": "Borrar filtros"
   },
   "deck": {
     "backToDashboard": "← Mis mazos",
     "editDeck": "Editar mazo",
+    "deckSetup": "Configuración del mazo",
     "field": "Área",
     "topic": "Tema",
     "checkedCannotSave": "Este mazo está verificado y ya no se puede editar. Duplícalo para hacer cambios.",

@@ -25,7 +25,7 @@ import {
   saveDeckSttAliases,
 } from "@/lib/speech-deck-aliases";
 import { startCloudListening } from "@/lib/speech-cloud";
-import { SPEECH_LANGUAGES } from "@/lib/speech-languages";
+import { SpeechLanguageSelectOptions } from "@/components/SpeechLanguageSelectOptions";
 import {
   parseFlashcardRevealSegments,
   splitKeywordTags,
@@ -1581,11 +1581,7 @@ export default function PracticePage() {
               onChange={(e) => setSpeechLang(e.target.value)}
               className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
             >
-              {SPEECH_LANGUAGES.map(({ code, name }) => (
-                <option key={code} value={code}>
-                  {name}
-                </option>
-              ))}
+              <SpeechLanguageSelectOptions />
             </select>
           </label>
           {mode === "straight" && speakMode && (

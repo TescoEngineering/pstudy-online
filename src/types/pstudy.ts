@@ -18,6 +18,13 @@ export interface Deck {
   id: string;
   title: string;
   items: PStudyItem[];
+  /** Count of items; always set. List loads may set this from a count query without loading item rows. */
+  itemCount: number;
+  /**
+   * When false, {@link items} is empty and only metadata was loaded (e.g. owned-deck list).
+   * Use {@link itemCount} for display; call `fetchDeck(id)` for full content.
+   */
+  itemsLoaded: boolean;
   createdAt: string;
   updatedAt: string;
   isPublic?: boolean;
