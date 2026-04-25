@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from "react";
 
 const DECK_COLUMN_FILTERS_KEY = "pstudy-deck-column-filters";
 
@@ -48,6 +48,8 @@ import {
   DECK_CHECKED_READONLY,
   duplicateOwnedDeck,
   fetchDeck,
+  isFieldLabelUsedInOwnedDecks,
+  isFieldTopicPairUsedInOwnedDecks,
   saveDeckWithItems,
 } from "@/lib/supabase/decks";
 import { ExpandableField } from "@/components/ExpandableField";
@@ -58,6 +60,23 @@ import { HelpNavLink } from "@/components/HelpNavLink";
 import { ContextHint } from "@/components/ContextHint";
 import { useToast } from "@/components/Toast";
 import { FIELDS_OF_INTEREST, getTopicsForField } from "@/lib/deck-attributes";
+import {
+  isClassificationValueLengthValid,
+  isPresetFieldOfInterest,
+  isPresetTopicForField,
+  MAX_DECK_CLASSIFICATION_LEN,
+} from "@/lib/deck-classification-validate";
+import {
+  addUserCustomFieldIfNew,
+  addUserCustomTopicForFieldIfNew,
+  DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD,
+  DECK_CLASSIFICATION_SELECT_CUSTOM_TOPIC,
+  loadUserCustomFields,
+  loadUserCustomTopicsMap,
+  removeUserCustomFieldFromList,
+  removeUserCustomTopicFromList,
+} from "@/lib/user-classification-suggestions";
+import { writeLastDeckClassificationPrefs } from "@/lib/last-deck-classification-prefs";
 import { SpeechLanguageSelectOptions } from "@/components/SpeechLanguageSelectOptions";
 import { matchSpeechLanguageSelectValue } from "@/lib/speech-languages";
 import {
@@ -124,12 +143,72 @@ export default function DeckEditorPage() {
     DeckOrgShareVisibility | "none"
   >("none");
   const [schoolBusy, setSchoolBusy] = useState(false);
+  const [userFieldList, setUserFieldList] = useState<string[]>([]);
+  const [userTopicsMap, setUserTopicsMap] = useState<Record<string, string[]>>({});
+  const [fieldSelect, setFieldSelect] = useState("");
+  const [fieldCustomText, setFieldCustomText] = useState("");
+  /** If non-null, Escape in field custom input restores this list value (captured when choosing "type your own"). */
+  const [fieldEscapeListSnapshot, setFieldEscapeListSnapshot] = useState<string | null>(null);
+  const [topicSelect, setTopicSelect] = useState("");
+  const [topicCustomText, setTopicCustomText] = useState("");
+  const [topicEscapeListSnapshot, setTopicEscapeListSnapshot] = useState<string | null>(null);
+  const fieldCustomInputRef = useRef<HTMLInputElement | null>(null);
+  const topicCustomInputRef = useRef<HTMLInputElement | null>(null);
+  const [classificationLabelBusy, setClassificationLabelBusy] = useState<string | null>(null);
+  const [classificationValidating, setClassificationValidating] = useState(false);
+  const lastSyncedClassificationDeckIdRef = useRef<string | null>(null);
 
   const deckContentLangCodes = useMemo(
     () => parseDeckContentLanguages(deck?.contentLanguage),
     [deck?.contentLanguage]
   );
   const deckFirstContentLang = deckContentLangCodes[0] ?? "";
+
+  const mergedFieldOptions = useMemo(() => {
+    const preset = FIELDS_OF_INTEREST as readonly string[];
+    const fromUser = userFieldList.filter(
+      (x: string) => !(FIELDS_OF_INTEREST as readonly string[]).includes(x)
+    );
+    fromUser.sort((a: string, b: string) =>
+      a.localeCompare(b, "en", { sensitivity: "base" })
+    );
+    return [...preset, ...fromUser];
+  }, [userFieldList]);
+
+  const effectiveFieldForTopicList = useMemo((): string | null => {
+    if (fieldSelect === DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD) {
+      const t = fieldCustomText.trim();
+      if (t) return t;
+      return deck?.fieldOfInterest?.trim() || null;
+    }
+    return fieldSelect.trim() || null;
+  }, [fieldSelect, fieldCustomText, deck?.fieldOfInterest]);
+
+  const mergedTopicOptions = useMemo(() => {
+    const base = getTopicsForField(effectiveFieldForTopicList);
+    if (!effectiveFieldForTopicList) {
+      return base;
+    }
+    const extra = userTopicsMap[effectiveFieldForTopicList] ?? [];
+    const seen = new Set(base);
+    const more = extra.filter((x: string) => !seen.has(x));
+    more.sort((a: string, b: string) =>
+      a.localeCompare(b, "en", { sensitivity: "base" })
+    );
+    return [...base, ...more];
+  }, [effectiveFieldForTopicList, userTopicsMap]);
+
+  const userOnlyCustomFields = useMemo(() => {
+    const preset = new Set(FIELDS_OF_INTEREST as readonly string[]);
+    return userFieldList.filter((f) => !preset.has(f));
+  }, [userFieldList]);
+
+  const userOnlyCustomTopicsForEffectiveField = useMemo(() => {
+    const fk = effectiveFieldForTopicList;
+    if (!fk) return [];
+    const preset = new Set(getTopicsForField(fk));
+    return (userTopicsMap[fk] ?? []).filter((t) => !preset.has(t));
+  }, [effectiveFieldForTopicList, userTopicsMap]);
 
   const columnFilterSummary = useMemo(() => {
     const n =
@@ -182,6 +261,52 @@ export default function DeckEditorPage() {
 
   useEffect(() => {
     if (!deck) return;
+    if (lastSyncedClassificationDeckIdRef.current === deck.id) return;
+    lastSyncedClassificationDeckIdRef.current = deck.id;
+
+    const userF = loadUserCustomFields();
+    const map = loadUserCustomTopicsMap();
+    setUserFieldList(userF);
+    setUserTopicsMap(map);
+
+    const f = deck.fieldOfInterest?.trim() || "";
+    const allFieldSet = new Set<string>([
+      ...FIELDS_OF_INTEREST,
+      ...userF,
+    ]);
+    if (!f) {
+      setFieldSelect("");
+      setFieldCustomText("");
+    } else if (allFieldSet.has(f)) {
+      setFieldSelect(f);
+      setFieldCustomText("");
+    } else {
+      setFieldSelect(DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD);
+      setFieldCustomText(f);
+    }
+
+    const fieldKey = f;
+    const baseTopics = getTopicsForField(fieldKey || null);
+    const extraT = fieldKey ? map[fieldKey] ?? [] : [];
+    const allTopicSet = new Set<string>([...baseTopics, ...extraT]);
+    const top = deck.topic?.trim() || "";
+    if (!top) {
+      setTopicSelect("");
+      setTopicCustomText("");
+    } else if (allTopicSet.has(top)) {
+      setTopicSelect(top);
+      setTopicCustomText("");
+    } else {
+      setTopicSelect(DECK_CLASSIFICATION_SELECT_CUSTOM_TOPIC);
+      setTopicCustomText(top);
+    }
+
+    setFieldEscapeListSnapshot(null);
+    setTopicEscapeListSnapshot(null);
+  }, [deck]);
+
+  useEffect(() => {
+    if (!deck) return;
     if (prevItemCountRef.current === -1) {
       prevItemCountRef.current = deck.items.length;
       return;
@@ -200,6 +325,18 @@ export default function DeckEditorPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [reviewInviteOpen]);
+
+  useLayoutEffect(() => {
+    if (fieldSelect !== DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD) return;
+    if (fieldEscapeListSnapshot === null) return;
+    fieldCustomInputRef.current?.focus();
+  }, [fieldSelect, fieldEscapeListSnapshot]);
+
+  useLayoutEffect(() => {
+    if (topicSelect !== DECK_CLASSIFICATION_SELECT_CUSTOM_TOPIC) return;
+    if (topicEscapeListSnapshot === null) return;
+    topicCustomInputRef.current?.focus();
+  }, [topicSelect, topicEscapeListSnapshot]);
 
   useEffect(() => {
     async function load() {
@@ -300,8 +437,315 @@ export default function DeckEditorPage() {
       ...merged,
       isPublic: Boolean(wantsShareRef.current && isClassificationComplete(merged)),
     };
+    if (
+      "fieldOfInterest" in updates ||
+      "topic" in updates ||
+      "contentLanguage" in updates
+    ) {
+      writeLastDeckClassificationPrefs({
+        fieldOfInterest: next.fieldOfInterest ?? null,
+        topic: next.topic ?? null,
+        contentLanguage: next.contentLanguage ?? null,
+      });
+    }
     setDeck(next);
     void persistDeck(next);
+  }
+
+  function applyFieldListSelection(v: string) {
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
+    setFieldSelect(v);
+    setFieldCustomText("");
+    setFieldEscapeListSnapshot(null);
+    updateDeckLocal({ fieldOfInterest: v || null, topic: null });
+    setTopicSelect("");
+    setTopicCustomText("");
+    setTopicEscapeListSnapshot(null);
+  }
+
+  function applyTopicListSelection(v: string) {
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
+    setTopicSelect(v);
+    setTopicCustomText("");
+    setTopicEscapeListSnapshot(null);
+    updateDeckLocal({ topic: v || null });
+  }
+
+  async function handleRemoveUserCustomField(fieldName: string) {
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
+    const busyId = `field:${fieldName}`;
+    setClassificationLabelBusy(busyId);
+    try {
+      const inUse = await isFieldLabelUsedInOwnedDecks(fieldName);
+      if (inUse) {
+        toast.error(t("deck.classificationRemoveInUseField"));
+        return;
+      }
+      removeUserCustomFieldFromList(fieldName);
+      setUserFieldList(loadUserCustomFields());
+      setUserTopicsMap(loadUserCustomTopicsMap());
+      revertClassificationUiFromDeck();
+      toast.success(t("deck.classificationRemovedFromList"));
+    } catch {
+      toast.error(t("common.failedToLoadDecks"));
+    } finally {
+      setClassificationLabelBusy(null);
+    }
+  }
+
+  async function handleRemoveUserCustomTopic(fieldKey: string, topic: string) {
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
+    const busyId = `topic:${fieldKey}::${topic}`;
+    setClassificationLabelBusy(busyId);
+    try {
+      const inUse = await isFieldTopicPairUsedInOwnedDecks(fieldKey, topic);
+      if (inUse) {
+        toast.error(t("deck.classificationRemoveInUseTopic"));
+        return;
+      }
+      removeUserCustomTopicFromList(fieldKey, topic);
+      setUserFieldList(loadUserCustomFields());
+      setUserTopicsMap(loadUserCustomTopicsMap());
+      revertClassificationUiFromDeck();
+      toast.success(t("deck.classificationRemovedFromList"));
+    } catch {
+      toast.error(t("common.failedToLoadDecks"));
+    } finally {
+      setClassificationLabelBusy(null);
+    }
+  }
+
+  function revertClassificationUiFromDeck() {
+    if (!deck) return;
+    const userF = loadUserCustomFields();
+    const map = loadUserCustomTopicsMap();
+    const f = deck.fieldOfInterest?.trim() || "";
+    const allFieldSet = new Set<string>([...FIELDS_OF_INTEREST, ...userF]);
+    if (!f) {
+      setFieldSelect("");
+      setFieldCustomText("");
+    } else if (allFieldSet.has(f)) {
+      setFieldSelect(f);
+      setFieldCustomText("");
+    } else {
+      setFieldSelect(DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD);
+      setFieldCustomText(f);
+    }
+    const fieldKey = f;
+    const baseTopics = getTopicsForField(fieldKey || null);
+    const extraT = fieldKey ? map[fieldKey] ?? [] : [];
+    const allTopicSet = new Set<string>([...baseTopics, ...extraT]);
+    const top = deck.topic?.trim() || "";
+    if (!top) {
+      setTopicSelect("");
+      setTopicCustomText("");
+    } else if (allTopicSet.has(top)) {
+      setTopicSelect(top);
+      setTopicCustomText("");
+    } else {
+      setTopicSelect(DECK_CLASSIFICATION_SELECT_CUSTOM_TOPIC);
+      setTopicCustomText(top);
+    }
+    setFieldEscapeListSnapshot(null);
+    setTopicEscapeListSnapshot(null);
+  }
+
+  function needsModerationForValues(
+    nextF: string | null,
+    nextT: string | null,
+    userFields: string[],
+    topicsByField: Record<string, string[]>
+  ): boolean {
+    if (nextF) {
+      const presetF = isPresetFieldOfInterest(nextF);
+      const knownF = presetF || userFields.some((x) => x === nextF);
+      if (!knownF) return true;
+    }
+    if (nextT && nextF) {
+      const presetT = isPresetTopicForField(nextF, nextT);
+      const knownT = presetT || (topicsByField[nextF] ?? []).includes(nextT);
+      if (!knownT) return true;
+    }
+    return false;
+  }
+
+  async function validateAndSaveClassification(nextF: string | null, nextT: string | null) {
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
+    const curF = deck.fieldOfInterest?.trim() || null;
+    const curT = deck.topic?.trim() || null;
+    if (curF === nextF && curT === nextT) return;
+    const rawF = nextF ?? "";
+    const rawT = nextT ?? "";
+    if (!isClassificationValueLengthValid(rawF) || !isClassificationValueLengthValid(rawT)) {
+      toast.error(
+        t("deck.classificationTooLong", { max: String(MAX_DECK_CLASSIFICATION_LEN) })
+      );
+      revertClassificationUiFromDeck();
+      return;
+    }
+
+    const userFields = loadUserCustomFields();
+    const topicsByField = loadUserCustomTopicsMap();
+    const needMod = needsModerationForValues(nextF, nextT, userFields, topicsByField);
+
+    setClassificationValidating(true);
+    try {
+      if (needMod) {
+        const res = await fetch("/api/deck/validate-classification", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ fieldOfInterest: nextF, topic: nextT }),
+        });
+        if (res.status === 401) {
+          toast.error(t("deck.classificationSessionRequired"));
+          revertClassificationUiFromDeck();
+          return;
+        }
+        if (res.status === 422) {
+          toast.error(t("deck.classificationModerationFailed"));
+          revertClassificationUiFromDeck();
+          return;
+        }
+        if (res.status === 503) {
+          toast.toast(t("deck.classificationModerationSkippedSave"), "info");
+        } else if (!res.ok) {
+          toast.error(t("deck.classificationModerationUnavailable"));
+          revertClassificationUiFromDeck();
+          return;
+        }
+      }
+      updateDeckLocal({ fieldOfInterest: nextF, topic: nextT });
+      if (nextF && !isPresetFieldOfInterest(nextF)) {
+        addUserCustomFieldIfNew(nextF);
+      }
+      if (nextF && nextT && !isPresetTopicForField(nextF, nextT)) {
+        addUserCustomTopicForFieldIfNew(nextF, nextT);
+      }
+      setUserFieldList(loadUserCustomFields());
+      setUserTopicsMap(loadUserCustomTopicsMap());
+      {
+        const U = loadUserCustomFields();
+        if (nextF) {
+          const allF = new Set<string>([...FIELDS_OF_INTEREST, ...U]);
+          if (allF.has(nextF)) {
+            setFieldSelect(nextF);
+            setFieldCustomText("");
+          } else {
+            setFieldSelect(DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD);
+            setFieldCustomText(nextF);
+          }
+        }
+        if (nextF && nextT) {
+          const mapT = loadUserCustomTopicsMap();
+          const allT = new Set<string>([
+            ...getTopicsForField(nextF),
+            ...(mapT[nextF] ?? []),
+          ]);
+          if (allT.has(nextT)) {
+            setTopicSelect(nextT);
+            setTopicCustomText("");
+          }
+        }
+      }
+      setFieldEscapeListSnapshot(null);
+      setTopicEscapeListSnapshot(null);
+    } catch {
+      toast.error(t("common.failedToSave"));
+      revertClassificationUiFromDeck();
+    } finally {
+      setClassificationValidating(false);
+    }
+  }
+
+  function onFieldSelectChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
+    const v = e.target.value;
+    if (v === DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD) {
+      setFieldEscapeListSnapshot(fieldSelect);
+      setFieldSelect(v);
+      setFieldCustomText(deck.fieldOfInterest?.trim() ?? "");
+      return;
+    }
+    applyFieldListSelection(v);
+  }
+
+  function onTopicSelectChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
+    const v = e.target.value;
+    if (v === DECK_CLASSIFICATION_SELECT_CUSTOM_TOPIC) {
+      setTopicEscapeListSnapshot(topicSelect);
+      setTopicSelect(v);
+      setTopicCustomText(deck.topic?.trim() ?? "");
+      return;
+    }
+    applyTopicListSelection(v);
+  }
+
+  function resolveNextTopicForClassificationSave(): string | null {
+    if (topicSelect === DECK_CLASSIFICATION_SELECT_CUSTOM_TOPIC) {
+      const el = document.getElementById("deck-topic-custom") as HTMLInputElement | null;
+      return ((el?.value ?? topicCustomText) as string).trim() || null;
+    }
+    const t = topicSelect.trim();
+    if (t) return t;
+    return deck?.topic?.trim() || null;
+  }
+
+  function onFieldCustomBlur(e: React.FocusEvent<HTMLInputElement>) {
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
+    if (fieldSelect !== DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD) return;
+    const nextF = e.currentTarget.value.trim() || null;
+    const nextT = resolveNextTopicForClassificationSave();
+    void validateAndSaveClassification(nextF, nextT);
+  }
+
+  function onTopicCustomBlur(e: React.FocusEvent<HTMLInputElement>) {
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
+    if (topicSelect !== DECK_CLASSIFICATION_SELECT_CUSTOM_TOPIC) return;
+    let nextF: string | null = null;
+    if (fieldSelect === DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD) {
+      const el = document.getElementById("deck-field-custom") as HTMLInputElement | null;
+      nextF = (el?.value ?? fieldCustomText).trim() || null;
+    } else {
+      nextF = fieldSelect.trim() || null;
+    }
+    const nextT = e.currentTarget.value.trim() || null;
+    void validateAndSaveClassification(nextF, nextT);
+  }
+
+  function onFieldCustomKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.currentTarget.blur();
+      return;
+    }
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
+    if (fieldEscapeListSnapshot !== null) {
+      applyFieldListSelection(fieldEscapeListSnapshot);
+    } else {
+      setFieldCustomText(deck.fieldOfInterest?.trim() ?? "");
+    }
+  }
+
+  function onTopicCustomKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.currentTarget.blur();
+      return;
+    }
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!deck || deckIsReadOnlyPublication(deck.publicationStatus ?? "draft")) return;
+    if (topicEscapeListSnapshot !== null) {
+      applyTopicListSelection(topicEscapeListSnapshot);
+    } else {
+      setTopicCustomText(deck.topic?.trim() ?? "");
+    }
   }
 
   function handleShareToggle(checked: boolean) {
@@ -588,6 +1032,9 @@ export default function DeckEditorPage() {
               <Link href="/community" className="text-stone-600 hover:text-pstudy-primary">
                 {t("dashboard.community")}
               </Link>
+              <Link href="/import" className="text-stone-600 hover:text-pstudy-primary">
+                {t("import.navLink")}
+              </Link>
               <HelpNavLink />
             </nav>
           </div>
@@ -639,51 +1086,98 @@ export default function DeckEditorPage() {
                     <div className="min-w-0 flex-1 sm:min-w-[10rem] sm:max-w-[16rem]">
                       <label
                         className="mb-1 block text-sm text-stone-600"
-                        htmlFor="deck-field"
+                        htmlFor={
+                          fieldSelect === DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD
+                            ? "deck-field-custom"
+                            : "deck-field-select"
+                        }
                       >
                         {t("community.fieldOfInterest")}
                       </label>
-                      <select
-                        id="deck-field"
-                        value={deck?.fieldOfInterest ?? ""}
-                        onChange={(e) =>
-                          updateDeckLocal({
-                            fieldOfInterest: e.target.value || null,
-                            topic: null,
-                          })
-                        }
-                        aria-invalid={!deck?.fieldOfInterest?.trim()}
-                        className="w-full min-w-0 rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-                      >
-                        <option value="">—</option>
-                        {FIELDS_OF_INTEREST.map((f) => (
-                          <option key={f} value={f}>
-                            {f}
+                      {fieldSelect === DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD ? (
+                        <input
+                          ref={fieldCustomInputRef}
+                          id="deck-field-custom"
+                          type="text"
+                          value={fieldCustomText}
+                          onChange={(e) => setFieldCustomText(e.target.value)}
+                          onBlur={onFieldCustomBlur}
+                          onKeyDown={onFieldCustomKeyDown}
+                          maxLength={MAX_DECK_CLASSIFICATION_LEN}
+                          autoComplete="off"
+                          placeholder={t("deck.classificationCustomFieldPlaceholder")}
+                          disabled={saving || classificationValidating}
+                          aria-invalid={!deck?.fieldOfInterest?.trim()}
+                          className="w-full min-w-0 rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary disabled:opacity-60"
+                        />
+                      ) : (
+                        <select
+                          id="deck-field-select"
+                          value={fieldSelect}
+                          onChange={onFieldSelectChange}
+                          disabled={saving || classificationValidating}
+                          aria-invalid={!deck?.fieldOfInterest?.trim()}
+                          className="w-full min-w-0 rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary disabled:opacity-60"
+                        >
+                          <option value="">—</option>
+                          {mergedFieldOptions.map((f) => (
+                            <option key={f} value={f}>
+                              {f}
+                            </option>
+                          ))}
+                          <option value={DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD}>
+                            {t("deck.classificationTypeOwnField")}
                           </option>
-                        ))}
-                      </select>
+                        </select>
+                      )}
                     </div>
                     <div className="min-w-0 flex-1 sm:min-w-[10rem] sm:max-w-[16rem]">
                       <label
                         className="mb-1 block text-sm text-stone-600"
-                        htmlFor="deck-topic"
+                        htmlFor={
+                          topicSelect === DECK_CLASSIFICATION_SELECT_CUSTOM_TOPIC
+                            ? "deck-topic-custom"
+                            : "deck-topic-select"
+                        }
                       >
                         {t("community.topic")}
                       </label>
-                      <select
-                        id="deck-topic"
-                        value={deck?.topic ?? ""}
-                        onChange={(e) => updateDeckLocal({ topic: e.target.value || null })}
-                        aria-invalid={!deck?.topic?.trim()}
-                        className="w-full min-w-0 rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-                      >
-                        <option value="">—</option>
-                        {getTopicsForField(deck?.fieldOfInterest ?? null).map((top) => (
-                          <option key={top} value={top}>
-                            {top}
+                      {topicSelect === DECK_CLASSIFICATION_SELECT_CUSTOM_TOPIC ? (
+                        <input
+                          ref={topicCustomInputRef}
+                          id="deck-topic-custom"
+                          type="text"
+                          value={topicCustomText}
+                          onChange={(e) => setTopicCustomText(e.target.value)}
+                          onBlur={onTopicCustomBlur}
+                          onKeyDown={onTopicCustomKeyDown}
+                          maxLength={MAX_DECK_CLASSIFICATION_LEN}
+                          autoComplete="off"
+                          placeholder={t("deck.classificationCustomTopicPlaceholder")}
+                          disabled={saving || classificationValidating}
+                          aria-invalid={!deck?.topic?.trim()}
+                          className="w-full min-w-0 rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary disabled:opacity-60"
+                        />
+                      ) : (
+                        <select
+                          id="deck-topic-select"
+                          value={topicSelect}
+                          onChange={onTopicSelectChange}
+                          disabled={saving || classificationValidating}
+                          aria-invalid={!deck?.topic?.trim()}
+                          className="w-full min-w-0 rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary disabled:opacity-60"
+                        >
+                          <option value="">—</option>
+                          {mergedTopicOptions.map((top) => (
+                            <option key={top} value={top}>
+                              {top}
+                            </option>
+                          ))}
+                          <option value={DECK_CLASSIFICATION_SELECT_CUSTOM_TOPIC}>
+                            {t("deck.classificationTypeOwnTopic")}
                           </option>
-                        ))}
-                      </select>
+                        </select>
+                      )}
                     </div>
                     <div className="min-w-0 flex-1 sm:min-w-[12rem] sm:max-w-[20rem]">
                       <label
@@ -716,6 +1210,124 @@ export default function DeckEditorPage() {
                       </select>
                     </div>
                 </div>
+                <p className="mb-1 text-xs text-stone-500">
+                  {t("deck.classificationFreeTextHint")}
+                </p>
+                {classificationValidating ? (
+                  <p className="mb-2 text-xs text-stone-600" role="status">
+                    {t("deck.classificationChecking")}
+                  </p>
+                ) : null}
+
+                {userOnlyCustomFields.length > 0 ||
+                (effectiveFieldForTopicList && userOnlyCustomTopicsForEffectiveField.length > 0) ? (
+                  <div
+                    className="rounded-md border border-stone-200 bg-stone-50/80 px-3 py-2.5"
+                    data-testid="deck-classification-user-labels"
+                  >
+                    <p className="mb-2 text-xs font-medium text-stone-600">
+                      {t("deck.classificationUserListTitle")}
+                    </p>
+                    {userOnlyCustomFields.length > 0 ? (
+                      <div className="mb-2">
+                        <p className="mb-1 text-xs text-stone-500">
+                          {t("community.fieldOfInterest")}
+                        </p>
+                        <ul className="flex flex-wrap gap-1.5">
+                          {userOnlyCustomFields.map((f) => {
+                            const busy = classificationLabelBusy === `field:${f}`;
+                            return (
+                              <li
+                                key={`uf:${f}`}
+                                className="inline-flex max-w-full items-center gap-0.5 rounded-full border border-stone-200 bg-white px-2 py-0.5 text-xs text-stone-800"
+                              >
+                                <span className="min-w-0 truncate" title={f}>
+                                  {f}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRemoveUserCustomField(f)}
+                                  disabled={saving || classificationValidating || busy}
+                                  className="shrink-0 rounded p-0.5 text-stone-500 hover:bg-stone-100 hover:text-stone-800 disabled:opacity-50"
+                                  title={t("deck.classificationRemoveFieldA11y", { label: f })}
+                                  aria-label={t("deck.classificationRemoveFieldA11y", { label: f })}
+                                >
+                                  {busy ? (
+                                    <span
+                                      className="inline-block h-3.5 w-3.5 animate-pulse rounded-full bg-stone-300"
+                                      aria-hidden
+                                    />
+                                  ) : (
+                                    <span className="text-base leading-none" aria-hidden>
+                                      ×
+                                    </span>
+                                  )}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {effectiveFieldForTopicList && userOnlyCustomTopicsForEffectiveField.length > 0 ? (
+                      <div>
+                        <p className="mb-1 text-xs text-stone-500">
+                          {t("community.topic")} ({effectiveFieldForTopicList})
+                        </p>
+                        <ul className="flex flex-wrap gap-1.5">
+                          {userOnlyCustomTopicsForEffectiveField.map((top) => {
+                            const busy =
+                              classificationLabelBusy ===
+                              `topic:${effectiveFieldForTopicList}::${top}`;
+                            return (
+                              <li
+                                key={`ut:${effectiveFieldForTopicList}:${top}`}
+                                className="inline-flex max-w-full items-center gap-0.5 rounded-full border border-stone-200 bg-white px-2 py-0.5 text-xs text-stone-800"
+                              >
+                                <span className="min-w-0 truncate" title={top}>
+                                  {top}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void handleRemoveUserCustomTopic(
+                                      effectiveFieldForTopicList,
+                                      top
+                                    )
+                                  }
+                                  disabled={saving || classificationValidating || busy}
+                                  className="shrink-0 rounded p-0.5 text-stone-500 hover:bg-stone-100 hover:text-stone-800 disabled:opacity-50"
+                                  title={t("deck.classificationRemoveTopicA11y", {
+                                    field: effectiveFieldForTopicList,
+                                    topic: top,
+                                  })}
+                                  aria-label={t("deck.classificationRemoveTopicA11y", {
+                                    field: effectiveFieldForTopicList,
+                                    topic: top,
+                                  })}
+                                >
+                                  {busy ? (
+                                    <span
+                                      className="inline-block h-3.5 w-3.5 animate-pulse rounded-full bg-stone-300"
+                                      aria-hidden
+                                    />
+                                  ) : (
+                                    <span className="text-base leading-none" aria-hidden>
+                                      ×
+                                    </span>
+                                  )}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ) : null}
+                    <p className="mt-2 text-xs text-stone-500">
+                      {t("deck.classificationUserListHint")}
+                    </p>
+                  </div>
+                ) : null}
 
                 <div>
                   <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-stone-500">

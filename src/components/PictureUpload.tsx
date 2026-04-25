@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/Toast";
 import { useTranslation } from "@/lib/i18n";
@@ -17,8 +17,13 @@ type PictureUploadProps = {
 export function PictureUpload({ value, onChange, className = "", readOnly = false }: PictureUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [imageLoadError, setImageLoadError] = useState(false);
   const toast = useToast();
   const { t } = useTranslation();
+
+  useEffect(() => {
+    setImageLoadError(false);
+  }, [value]);
 
   async function uploadFile(file: File) {
     if (readOnly) return;
@@ -92,9 +97,26 @@ export function PictureUpload({ value, onChange, className = "", readOnly = fals
   if (readOnly) {
     return (
       <div className={`flex items-center gap-2 ${className}`}>
-        {value ? (
+        {value && !imageLoadError ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={value} alt="" className="h-16 w-16 rounded object-cover ring-1 ring-stone-200" />
+          <img
+            src={value}
+            alt=""
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onError={() => setImageLoadError(true)}
+            className="h-16 w-16 rounded object-cover ring-1 ring-stone-200"
+          />
+        ) : value && imageLoadError ? (
+          <a
+            href={value}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex h-16 w-16 flex-col items-center justify-center overflow-hidden rounded border border-amber-200 bg-amber-50/80 p-1 text-center text-[10px] leading-tight text-amber-900 underline"
+            title={value}
+          >
+            {t("common.imageLoadFailedLink")}
+          </a>
         ) : (
           <span className="flex h-16 w-16 items-center justify-center rounded border border-stone-100 bg-stone-50 text-xs text-stone-400">
             —
@@ -148,6 +170,29 @@ export function PictureUpload({ value, onChange, className = "", readOnly = fals
               Drop to replace
             </div>
           )}
+        </div>
+      ) : value && imageLoadError ? (
+        <div className="flex h-16 min-w-0 max-w-[12rem] flex-col justify-center gap-1 rounded border border-amber-200 bg-amber-50/80 px-2 py-1 text-left">
+          <p className="text-[10px] font-medium text-amber-900">{t("common.imageLoadFailed")}</p>
+          <a
+            href={value}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="truncate text-[10px] text-amber-800 underline"
+            title={value}
+          >
+            {t("common.imageLoadFailedLink")}
+          </a>
+          <button
+            type="button"
+            onClick={() => {
+              setImageLoadError(false);
+              inputRef.current?.click();
+            }}
+            className="self-start text-[10px] font-medium text-pstudy-primary hover:underline"
+          >
+            {t("common.replaceImage")}
+          </button>
         </div>
       ) : (
         <button

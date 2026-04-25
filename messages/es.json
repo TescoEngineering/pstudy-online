@@ -12,6 +12,9 @@
     "selectImageFile": "Selecciona un archivo de imagen (PNG, JPG, etc.).",
     "mustBeLoggedIn": "Debes iniciar sesión para subir imágenes.",
     "uploadFailed": "Error al subir.",
+    "imageLoadFailed": "No se pudo cargar la imagen (dirección incorrecta, bloqueada o sin conexión).",
+    "imageLoadFailedLink": "Abrir URL de la imagen",
+    "replaceImage": "Sustituir imagen",
     "next": "Siguiente",
     "delete": "Eliminar",
     "remove": "Quitar",
@@ -85,7 +88,13 @@
     "untitledDeck": "Mazo sin título",
     "filterDecksHint": "Filtre por título, área, tema e idioma del mazo: las mismas opciones que en PstudyCommunity.",
     "noDecksMatchFilters": "Ningún mazo cumple estos filtros. Pruebe otros criterios o borre los filtros.",
-    "clearDeckFilters": "Borrar filtros"
+    "clearDeckFilters": "Borrar filtros",
+    "renameDeck": "Renombrar",
+    "renameDeckSave": "Guardar",
+    "renameDeckInputAria": "Título del mazo",
+    "renameDeckEmpty": "El título no puede estar vacío.",
+    "renameDeckSuccess": "Mazo renombrado.",
+    "renameDeckFailed": "No se pudo renombrar el mazo."
   },
   "deck": {
     "backToDashboard": "← Mis mazos",
@@ -127,7 +136,26 @@
     "answerPlaceholder": "Respuesta",
     "instructionPlaceholder": "Instrucción",
     "removeItemConfirm": "¿Eliminar este elemento?",
-    "saving": "Guardando..."
+    "saving": "Guardando...",
+    "classificationFreeTextHint": "Elija primero de la lista. Si su área no está, use «escriba la suya» al final, introduzca un nombre breve y salga del recuadro (se verifica). Sus etiquetas nuevas se guardan en este navegador y vuelven a la lista la próxima vez.",
+    "classificationTypeOwnField": "No está en la lista — escriba la suya",
+    "classificationTypeOwnTopic": "No está en la lista — escriba la suya",
+    "classificationCustomFieldPlaceholder": "p. ej. su ámbito",
+    "classificationCustomTopicPlaceholder": "p. ej. su tema",
+    "classificationApplyHint": "Haga clic fuera del recuadro o pulse Intro para guardar.",
+    "classificationSessionRequired": "La sesión caducó. Vuelva a iniciar sesión e introduzca otra vez el área y el tema.",
+    "classificationModerationSkippedSave": "El control de seguridad en línea no estuvo disponible, pero se guardó su texto.",
+    "classificationTooLong": "El área y el tema admiten como máximo {max} caracteres cada uno.",
+    "classificationModerationFailed": "Ese texto no superó el control de seguridad. Cambie la redacción o use una opción de la lista.",
+    "classificationModerationUnavailable": "No se pudo ejecutar el control de seguridad. Inténtelo de nuevo o elija de la lista sugerida.",
+    "classificationChecking": "Comprobando…",
+    "classificationUserListTitle": "Etiquetas guardadas (este navegador)",
+    "classificationUserListHint": "Puede quitar lo que añadió usted si ningún mazo de su cuenta lo usa aún. Las entradas predefinidas de la lista no se pueden quitar.",
+    "classificationRemoveInUseField": "Ese ámbito sigue puesto al menos en un mazo. Cámbielo o bórrelo allí antes de quitarlo de la lista.",
+    "classificationRemoveInUseTopic": "Ese par ámbito–tema sigue puesto al menos en un mazo. Cámbielo o bórrelo allí antes de quitarlo de la lista.",
+    "classificationRemovedFromList": "Quitado de su lista guardada.",
+    "classificationRemoveFieldA11y": "Quitar {label} de sus ámbitos guardados",
+    "classificationRemoveTopicA11y": "Quitar el tema {topic} del ámbito {field}"
   },
   "practice": {
     "exerciseSetup": "Configuración del ejercicio",
@@ -169,11 +197,13 @@
     "summary": "{correct} correctas, {wrong} incorrectas — {total} total"
   },
   "import": {
+    "navLink": "Importar .txt",
     "title": "Importar archivo PSTUDY .txt",
     "dropHint": "Suelta un archivo .txt aquí o haz clic para buscar",
     "pasteHint": "O haz clic aquí y pega (Ctrl+V)",
     "pasteNote": "También puedes hacer clic en el recuadro y pegar (Ctrl+V).",
-    "importing": "Importando..."
+    "importing": "Importando...",
+    "deckMetaUpdateFailed": "El mazo se importó, pero no se pudieron guardar el área, el tema o el idioma. Puedes definirlos en el editor del mazo."
   },
   "community": {
     "browseHint": "Explora mazos compartidos por otros. Copia cualquier mazo a tu colección para editarlo y practicar.",

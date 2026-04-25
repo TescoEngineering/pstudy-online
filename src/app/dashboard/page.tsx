@@ -13,6 +13,7 @@ import {
   mergeDecksIntoNew,
   duplicateOwnedDeck,
   invalidateOwnedDecksListCache,
+  updateDeck,
   type PublicDecksFilters,
 } from "@/lib/supabase/decks";
 import { filterDecksByPublicDeckFilters } from "@/lib/deck-list-filters";
@@ -36,6 +37,9 @@ export default function DashboardPage() {
   const [mergeTitle, setMergeTitle] = useState("");
   const [mergeBusy, setMergeBusy] = useState(false);
   const [duplicatingDeckId, setDuplicatingDeckId] = useState<string | null>(null);
+  const [renameDeckId, setRenameDeckId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameSaving, setRenameSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -213,6 +217,38 @@ export default function DashboardPage() {
     }
   }
 
+  function startRename(deck: Deck) {
+    setRenameDeckId(deck.id);
+    setRenameValue(deck.title);
+  }
+
+  function cancelRename() {
+    setRenameDeckId(null);
+    setRenameValue("");
+  }
+
+  async function saveRename() {
+    if (!renameDeckId) return;
+    const title = renameValue.trim();
+    if (!title) {
+      toast.error(t("dashboard.renameDeckEmpty"));
+      return;
+    }
+    setRenameSaving(true);
+    try {
+      await updateDeck(renameDeckId, { title });
+      setDecks((prev) =>
+        prev.map((d) => (d.id === renameDeckId ? { ...d, title } : d))
+      );
+      cancelRename();
+      toast.success(t("dashboard.renameDeckSuccess"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("dashboard.renameDeckFailed"));
+    } finally {
+      setRenameSaving(false);
+    }
+  }
+
   async function handleDeleteDeck(id: string) {
     setDeleteTarget(id);
   }
@@ -318,6 +354,7 @@ export default function DashboardPage() {
                   setSelectedDeckIds([]);
                   setMergeOpen(false);
                 } else {
+                  cancelRename();
                   setMergeMode(true);
                 }
               }}
@@ -559,12 +596,64 @@ export default function DashboardPage() {
                   ) : null}
                   <div className="min-w-0 flex-1">
                     <div>
-                      <Link
-                        href={`/deck/${deck.id}`}
-                        className="font-semibold text-stone-900 hover:text-pstudy-primary hover:underline"
-                      >
-                        {deck.title}
-                      </Link>
+                      {renameDeckId === deck.id ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            type="text"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                void saveRename();
+                              }
+                              if (e.key === "Escape") {
+                                e.preventDefault();
+                                cancelRename();
+                              }
+                            }}
+                            className="min-w-0 max-w-md flex-1 rounded-lg border border-stone-300 px-2 py-1.5 text-sm text-stone-900 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                            autoComplete="off"
+                            autoFocus
+                            disabled={renameSaving}
+                            aria-label={t("dashboard.renameDeckInputAria")}
+                          />
+                          <button
+                            type="button"
+                            className="btn-primary text-sm"
+                            disabled={renameSaving}
+                            onClick={() => void saveRename()}
+                          >
+                            {renameSaving ? t("common.loading") : t("dashboard.renameDeckSave")}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-secondary text-sm"
+                            disabled={renameSaving}
+                            onClick={cancelRename}
+                          >
+                            {t("common.cancel")}
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <Link
+                            href={`/deck/${deck.id}`}
+                            className="font-semibold text-stone-900 hover:text-pstudy-primary hover:underline"
+                          >
+                            {deck.title}
+                          </Link>
+                          {!mergeMode && deck.publicationStatus !== "checked" ? (
+                            <button
+                              type="button"
+                              onClick={() => startRename(deck)}
+                              className="ml-2 align-baseline text-sm font-medium text-pstudy-primary decoration-pstudy-primary/40 hover:underline"
+                            >
+                              {t("dashboard.renameDeck")}
+                            </button>
+                          ) : null}
+                        </>
+                      )}
                       {deckLangCodes.length > 0 ? (
                         <span className="inline-flex flex-wrap items-center gap-1 align-middle">
                           {deckLangCodes.map((code, i) => (

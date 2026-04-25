@@ -12,6 +12,9 @@
     "selectImageFile": "Seleziona un file immagine (PNG, JPG, ecc.).",
     "mustBeLoggedIn": "Devi accedere per caricare immagini.",
     "uploadFailed": "Caricamento fallito.",
+    "imageLoadFailed": "Impossibile caricare l’immagine (indirizzo errato, bloccata o offline).",
+    "imageLoadFailedLink": "Apri URL immagine",
+    "replaceImage": "Sostituisci immagine",
     "next": "Avanti",
     "delete": "Elimina",
     "remove": "Rimuovi",
@@ -85,7 +88,13 @@
     "untitledDeck": "Mazzo senza titolo",
     "filterDecksHint": "Filtra per titolo, area, argomento e lingua del mazzo: le stesse opzioni di PstudyCommunity.",
     "noDecksMatchFilters": "Nessun mazzo corrisponde a questi filtri. Modifica i criteri o azzera i filtri.",
-    "clearDeckFilters": "Azzera filtri"
+    "clearDeckFilters": "Azzera filtri",
+    "renameDeck": "Rinomina",
+    "renameDeckSave": "Salva",
+    "renameDeckInputAria": "Titolo del mazzo",
+    "renameDeckEmpty": "Il titolo non può essere vuoto.",
+    "renameDeckSuccess": "Mazzo rinominato.",
+    "renameDeckFailed": "Impossibile rinominare il mazzo."
   },
   "deck": {
     "backToDashboard": "← I miei mazzi",
@@ -127,7 +136,26 @@
     "answerPlaceholder": "Risposta",
     "instructionPlaceholder": "Istruzione",
     "removeItemConfirm": "Rimuovere questo elemento?",
-    "saving": "Salvataggio..."
+    "saving": "Salvataggio...",
+    "classificationFreeTextHint": "Scegli prima dall’elenco. Se l’ambito manca, usa l’opzione in fondo, scrivi un nome breve ed esci dal campo (controllo di sicurezza). Le tue voci si salvano in questo browser e tornano in elenco.",
+    "classificationTypeOwnField": "Non in elenco — scrivi il tuo",
+    "classificationTypeOwnTopic": "Non in elenco — scrivi il tuo",
+    "classificationCustomFieldPlaceholder": "es. il tuo ambito",
+    "classificationCustomTopicPlaceholder": "es. il tuo argomento",
+    "classificationApplyHint": "Clic fuori dal campo o premi Invio per salvare.",
+    "classificationSessionRequired": "Sessione scaduta. Accedi di nuovo e inserisci di nuovo ambito e argomento.",
+    "classificationModerationSkippedSave": "Il controllo di sicurezza online non era disponibile, ma il testo è stato salvato.",
+    "classificationTooLong": "Area e argomento: al massimo {max} caratteri ciascuno.",
+    "classificationModerationFailed": "Il testo non ha superato il controllo di sicurezza. Riformula o usa un’opzione dall’elenco.",
+    "classificationModerationUnavailable": "Il controllo di sicurezza non è riuscito. Riprova o scegli dai suggerimenti.",
+    "classificationChecking": "Controllo in corso…",
+    "classificationUserListTitle": "Etichette salvate (questo browser)",
+    "classificationUserListHint": "Puoi rimuovere le voci aggiunte da te se nessun mazzo del tuo account le usa. Le voci predefinite dell’elenco non si possono rimuovere.",
+    "classificationRemoveInUseField": "Quell’ambito è ancora impostato in almeno un mazzo. Modificalo o azzeralo lì prima di toglierlo da questo elenco.",
+    "classificationRemoveInUseTopic": "Quella coppia ambito e tema è ancora impostata in almeno un mazzo. Modificala lì prima di toglierla da questo elenco.",
+    "classificationRemovedFromList": "Rimosso dal tuo elenco salvato.",
+    "classificationRemoveFieldA11y": "Rimuovi {label} dagli ambiti salvati",
+    "classificationRemoveTopicA11y": "Rimuovi l’argomento {topic} per l’ambito {field}"
   },
   "practice": {
     "exerciseSetup": "Impostazioni esercizio",
@@ -169,11 +197,13 @@
     "summary": "{correct} corrette, {wrong} sbagliate — {total} totali"
   },
   "import": {
+    "navLink": "Importa .txt",
     "title": "Importa file PSTUDY .txt",
     "dropHint": "Rilascia un file .txt qui o clicca per cercare",
     "pasteHint": "O clicca qui e incolla (Ctrl+V)",
     "pasteNote": "Puoi anche cliccare nell'area e incollare (Ctrl+V).",
-    "importing": "Importazione..."
+    "importing": "Importazione...",
+    "deckMetaUpdateFailed": "Il mazzo è stato importato, ma area, argomento o lingua non sono stati salvati. Puoi impostarli nell’editor del mazzo."
   },
   "community": {
     "browseHint": "Sfoglia i mazzi condivisi da altri. Copia qualsiasi mazzo nella tua raccolta per modificarlo ed esercitarti.",

@@ -145,6 +145,29 @@ export async function fetchDecks(opts?: { bypassCache?: boolean }): Promise<Deck
   return getCachedOwnedDecksList(user.id) ?? result;
 }
 
+/** True if any owned deck uses this field label (same string as {@link Deck.fieldOfInterest}). */
+export async function isFieldLabelUsedInOwnedDecks(fieldLabel: string): Promise<boolean> {
+  const t = fieldLabel.trim();
+  if (!t) return false;
+  const decks = await fetchDecks({ bypassCache: true });
+  return decks.some((d) => (d.fieldOfInterest ?? "").trim() === t);
+}
+
+/** True if any owned deck has this exact (field, topic) pair. */
+export async function isFieldTopicPairUsedInOwnedDecks(
+  fieldLabel: string,
+  topicLabel: string
+): Promise<boolean> {
+  const f = fieldLabel.trim();
+  const top = topicLabel.trim();
+  if (!f || !top) return false;
+  const decks = await fetchDecks({ bypassCache: true });
+  return decks.some(
+    (d) =>
+      (d.fieldOfInterest ?? "").trim() === f && (d.topic ?? "").trim() === top
+  );
+}
+
 export async function fetchDeck(
   id: string,
   opts?: { bypassCache?: boolean }

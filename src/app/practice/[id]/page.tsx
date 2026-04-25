@@ -150,7 +150,7 @@ export default function PracticePage() {
   const [promptMode, setPromptMode] = useState<"description" | "explanation">(
     "description"
   );
-  const [order, setOrder] = useState<"normal" | "random">("random");
+  const [order, setOrder] = useState<"normal" | "random">("normal");
   const [list, setList] = useState<PStudyItem[]>([]);
   const [index, setIndex] = useState(0);
   const [answer, setAnswer] = useState("");

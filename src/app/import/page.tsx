@@ -18,9 +18,11 @@ import {
 import { Deck, PStudyItem } from "@/types/pstudy";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { createDeck, deleteDeck, saveDeckWithItems } from "@/lib/supabase/decks";
+import { createDeck, deleteDeck, saveDeckWithItems, updateDeck } from "@/lib/supabase/decks";
 import { toError } from "@/lib/supabase/error-utils";
 import { useToast } from "@/components/Toast";
+import { mirrorImportPicturesToSupabaseStorage } from "@/lib/mirror-import-pictures";
+import { readLastDeckClassificationPrefs } from "@/lib/last-deck-classification-prefs";
 
 /** Shared shell for .txt drop / paste / browse (Import section and AI empty state). */
 const TXT_IMPORT_DROP_ZONE_CLASS =
@@ -33,6 +35,23 @@ function sanitizeAiExportBasename(title: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/\s+/g, "-");
+}
+
+/** Derive deck title from the imported file name (strip path + last extension, e.g. `lesson-01.txt` → `lesson-01`). */
+function deckTitleFromImportFileName(
+  fileName: string | undefined,
+  wasExamFile: boolean
+): string {
+  const fallback = wasExamFile ? "Imported exam deck" : "Imported deck";
+  if (!fileName?.trim()) return fallback;
+  const base = fileName
+    .replace(/^.*[/\\]/, "")
+    .replace(/\.[^.\\/:]+$/, "")
+    .replace(/[/\\?%*:|"<>]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!base) return fallback;
+  return base.slice(0, 200);
 }
 
 function downloadUtf8TextFile(filename: string, content: string) {
@@ -62,8 +81,14 @@ function downloadAiPstudyTxtPair(
 
 async function doImport(
   text: string,
-  router: ReturnType<typeof useRouter>
-): Promise<{ ok: boolean; error?: string }> {
+  router: ReturnType<typeof useRouter>,
+  options?: { sourceFileName?: string }
+): Promise<{
+  ok: boolean;
+  error?: string;
+  imageImportFailedCount?: number;
+  deckMetaUpdateFailed?: boolean;
+}> {
   if (!text.trim()) {
     return { ok: false, error: "No content to import." };
   }
@@ -73,10 +98,12 @@ async function doImport(
   }
 
   try {
-    const title = wasExamFile ? "Imported exam deck" : "Imported deck";
+    const { items: itemsWithMirroredPics, imageImportFailedCount } =
+      await mirrorImportPicturesToSupabaseStorage(items);
+    const title = deckTitleFromImportFileName(options?.sourceFileName, wasExamFile);
     const newDeck = await createDeck(title);
 
-    const itemsWithIds: PStudyItem[] = items.map((it) => ({
+    const itemsWithIds: PStudyItem[] = itemsWithMirroredPics.map((it) => ({
       ...it,
       id: crypto.randomUUID(),
     }));
@@ -94,8 +121,26 @@ async function doImport(
       await deleteDeck(newDeck.id).catch(() => {});
       throw saveErr;
     }
+
+    const prefs = readLastDeckClassificationPrefs();
+    const f = prefs.fieldOfInterest?.trim() || null;
+    const top = prefs.topic?.trim() || null;
+    const c = prefs.contentLanguage?.trim() || null;
+    let deckMetaUpdateFailed = false;
+    if (f || top || c) {
+      try {
+        await updateDeck(newDeck.id, {
+          field_of_interest: f,
+          topic: top,
+          content_language: c,
+        });
+      } catch {
+        deckMetaUpdateFailed = true;
+      }
+    }
+
     router.push(`/deck/${newDeck.id}`);
-    return { ok: true };
+    return { ok: true, imageImportFailedCount, deckMetaUpdateFailed };
   } catch (err) {
     const e = toError(err);
     let msg = e.message;
@@ -137,18 +182,28 @@ export default function ImportPage() {
   }, [router]);
 
   const handleImport = useCallback(
-    async (text: string) => {
+    async (text: string, sourceFileName?: string) => {
       setImporting(true);
       setMessage(null);
-      const result = await doImport(text, router);
+      const result = await doImport(text, router, { sourceFileName });
       if (!result.ok) {
         const errText = result.error ?? "Import failed";
         setMessage({ type: "err", text: errText });
         toastError(errText);
+      } else {
+        if ((result.imageImportFailedCount ?? 0) > 0) {
+          pushToast(
+            t("import.imageImportToStorageFailed", { count: result.imageImportFailedCount! }),
+            "info"
+          );
+        }
+        if (result.deckMetaUpdateFailed) {
+          pushToast(t("import.deckMetaUpdateFailed"), "info");
+        }
       }
       setImporting(false);
     },
-    [router, toastError]
+    [router, toastError, pushToast, t]
   );
 
   const handleFile = useCallback(
@@ -171,7 +226,7 @@ export default function ImportPage() {
         toastError(t("import.fileReadError"));
       };
       reader.onload = () => {
-        handleImport(String(reader.result ?? ""));
+        handleImport(String(reader.result ?? ""), file.name);
       };
       reader.readAsText(file, "UTF-8");
       e.target.value = "";
@@ -183,7 +238,7 @@ export default function ImportPage() {
     (e: React.ClipboardEvent) => {
       e.preventDefault();
       const text = e.clipboardData.getData("text/plain");
-      if (text) handleImport(text);
+      if (text) handleImport(text, undefined);
     },
     [handleImport]
   );
@@ -205,7 +260,7 @@ export default function ImportPage() {
         toastError(t("import.fileReadError"));
       };
       reader.onload = () => {
-        handleImport(String(reader.result ?? ""));
+        handleImport(String(reader.result ?? ""), file.name);
       };
       reader.readAsText(file, "UTF-8");
     },
@@ -288,14 +343,30 @@ export default function ImportPage() {
         setAiBusy(false);
         return;
       }
-      const items = data.items ?? [];
-      if (items.length === 0) {
+      const itemsIn = data.items ?? [];
+      if (itemsIn.length === 0) {
         toastError(t("import.aiErrorGeneric"));
         setAiBusy(false);
         return;
       }
       const baseTitle = data.deckTitle ?? "Generated deck";
-      const itemsFull = data.itemsFull;
+      const itemsFullIn = data.itemsFull;
+
+      const combinedForPics: Omit<PStudyItem, "id">[] = [
+        ...(itemsFullIn ?? []),
+        ...itemsIn,
+      ];
+      const combinedResult = await mirrorImportPicturesToSupabaseStorage(combinedForPics);
+      const nFull = itemsFullIn?.length ?? 0;
+      const itemsFull: Omit<PStudyItem, "id">[] | undefined =
+        nFull > 0 ? combinedResult.items.slice(0, nFull) : undefined;
+      const items: Omit<PStudyItem, "id">[] = combinedResult.items.slice(nFull);
+      if (combinedResult.imageImportFailedCount > 0) {
+        pushToast(
+          t("import.imageImportToStorageFailed", { count: combinedResult.imageImportFailedCount }),
+          "info"
+        );
+      }
 
       const withIds = (raw: Omit<PStudyItem, "id">[]): PStudyItem[] =>
         raw.map((it) => ({ ...it, id: crypto.randomUUID() }));
