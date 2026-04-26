@@ -86,6 +86,7 @@
     "private": "Privato",
     "deleteDeckConfirm": "Eliminare questo mazzo?",
     "untitledDeck": "Mazzo senza titolo",
+    "filtersHeading": "Filtri",
     "filterDecksHint": "Filtra per titolo, area, argomento e lingua del mazzo: le stesse opzioni di PstudyCommunity.",
     "noDecksMatchFilters": "Nessun mazzo corrisponde a questi filtri. Modifica i criteri o azzera i filtri.",
     "clearDeckFilters": "Azzera filtri",
@@ -202,6 +203,7 @@
     "dropHint": "Rilascia un file .txt qui o clicca per cercare",
     "pasteHint": "O clicca qui e incolla (Ctrl+V)",
     "pasteNote": "Puoi anche cliccare nell'area e incollare (Ctrl+V).",
+    "dropZoneCompact": "Trascina un .txt qui, clicca per sfogliare o incolla (Ctrl+V) con l’area attiva.",
     "importing": "Importazione...",
     "deckMetaUpdateFailed": "Il mazzo è stato importato, ma area, argomento o lingua non sono stati salvati. Puoi impostarli nell’editor del mazzo."
   },

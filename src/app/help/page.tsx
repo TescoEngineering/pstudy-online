@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useTranslation } from "@/lib/i18n";
 import { Logo } from "@/components/Logo";
-import { HelpNavLink } from "@/components/HelpNavLink";
 import { useToast } from "@/components/Toast";
 import { createClient } from "@/lib/supabase/client";
 
@@ -219,7 +218,9 @@ export default function HelpPage() {
             <Link href="/dashboard" className="text-stone-600 hover:text-pstudy-primary">
               {t("dashboard.myDecks")}
             </Link>
-            <HelpNavLink />
+            <Link href="/account" className="text-stone-600 hover:text-pstudy-primary">
+              {t("dashboard.navAccount")}
+            </Link>
             <Link href="/login" className="text-stone-600 hover:text-pstudy-primary">
               {t("home.logIn")}
             </Link>

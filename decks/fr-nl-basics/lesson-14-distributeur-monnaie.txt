@@ -1,0 +1,5 @@
+Bonjour !	Goedemiddag.						A1 — geld: DAB/ automaat, wissel, kleine betaling. Spreek de Franse kant, controleer met het NL. — geld, automaat, wisselgeld, A1, korte zinnen, u.	
+Excusez-moi, le distributeur automatique, c’est près d’ici, s’il vous plaît ?	Pardon, de (geld)automaat, is (die) hier in de buurt, alstublieft?						lokaliseren, kort, context.	
+Oui, monsieur, c’est en face, à côté de la boulangerie, s’il vous plaît, merci !	Ja, meneer, recht (tegen)over, naast de bakker, alstublieft, dank u!						wijzen, straat, context.	
+Bonjour, c’est 4,20, s’il vous plaît. Tenez, voici 20, la monnaie, s’il vous plaît, merci !	Dag, dat is 4,20, alstublieft. Alsjeblieft, (hier) 20, het wisselgeld, alstublieft, dank u!						winkel, kassa, klein bedrag, context.	
+Bien sûr, c’est 15,80, tenez, voilà, merci, madame, bonne journée, au revoir !	Natuurlijk, dat is 15,80, neem, alsjeblieft, dank, mevrouw, fijne dag, tot ziens!						wissel, bedrag, voorbeeld, context, BE.	

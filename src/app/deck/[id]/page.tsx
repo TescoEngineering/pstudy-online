@@ -1023,6 +1023,9 @@ export default function DeckEditorPage() {
           <div className="flex items-center justify-between gap-4">
             <Logo size="sm" withText />
             <nav className="flex flex-wrap items-center gap-4 text-sm">
+              <Link href="/account" className="text-stone-600 hover:text-pstudy-primary">
+                {t("dashboard.navAccount")}
+              </Link>
               <Link href="/dashboard" className="text-stone-600 hover:text-pstudy-primary">
                 {t("dashboard.myDecks")}
               </Link>
@@ -1084,16 +1087,23 @@ export default function DeckEditorPage() {
               <div className="mt-3 space-y-4">
                 <div className="flex flex-wrap items-end gap-4">
                     <div className="min-w-0 flex-1 sm:min-w-[10rem] sm:max-w-[16rem]">
-                      <label
-                        className="mb-1 block text-sm text-stone-600"
-                        htmlFor={
-                          fieldSelect === DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD
-                            ? "deck-field-custom"
-                            : "deck-field-select"
-                        }
-                      >
-                        {t("community.fieldOfInterest")}
-                      </label>
+                      <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                        <label
+                          className="m-0 text-sm text-stone-600"
+                          htmlFor={
+                            fieldSelect === DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD
+                              ? "deck-field-custom"
+                              : "deck-field-select"
+                          }
+                        >
+                          {t("community.fieldOfInterest")}
+                        </label>
+                        <ContextHint>
+                          <p className="m-0 text-sm text-stone-700">
+                            {t("deck.classificationFreeTextHint")}
+                          </p>
+                        </ContextHint>
+                      </div>
                       {fieldSelect === DECK_CLASSIFICATION_SELECT_CUSTOM_FIELD ? (
                         <input
                           ref={fieldCustomInputRef}
@@ -1210,9 +1220,6 @@ export default function DeckEditorPage() {
                       </select>
                     </div>
                 </div>
-                <p className="mb-1 text-xs text-stone-500">
-                  {t("deck.classificationFreeTextHint")}
-                </p>
                 {classificationValidating ? (
                   <p className="mb-2 text-xs text-stone-600" role="status">
                     {t("deck.classificationChecking")}
@@ -1225,9 +1232,16 @@ export default function DeckEditorPage() {
                     className="rounded-md border border-stone-200 bg-stone-50/80 px-3 py-2.5"
                     data-testid="deck-classification-user-labels"
                   >
-                    <p className="mb-2 text-xs font-medium text-stone-600">
-                      {t("deck.classificationUserListTitle")}
-                    </p>
+                    <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                      <span className="text-xs font-medium text-stone-600">
+                        {t("deck.classificationUserListTitle")}
+                      </span>
+                      <ContextHint>
+                        <p className="m-0 text-sm text-stone-700">
+                          {t("deck.classificationUserListHint")}
+                        </p>
+                      </ContextHint>
+                    </div>
                     {userOnlyCustomFields.length > 0 ? (
                       <div className="mb-2">
                         <p className="mb-1 text-xs text-stone-500">
@@ -1323,22 +1337,27 @@ export default function DeckEditorPage() {
                         </ul>
                       </div>
                     ) : null}
-                    <p className="mt-2 text-xs text-stone-500">
-                      {t("deck.classificationUserListHint")}
-                    </p>
                   </div>
                 ) : null}
 
                 <div>
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-stone-500">
-                    {t("deck.sharingOptionsLabel")}
-                  </p>
-                  <p className="mb-3 text-sm text-stone-600">{t("deck.sharingOptionsHint")}</p>
-                  {orgMemberships.length === 0 ? (
-                    <p className="mb-3 text-sm text-stone-500">
-                      {t("deck.myCommunitiesRequiresOrgHint")}
+                  <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                    <p className="m-0 text-xs font-semibold uppercase tracking-wide text-stone-500">
+                      {t("deck.sharingOptionsLabel")}
                     </p>
-                  ) : null}
+                    <ContextHint>
+                      <div className="space-y-2">
+                        <p className="m-0 text-sm text-stone-700">
+                          {t("deck.sharingOptionsHint")}
+                        </p>
+                        {orgMemberships.length === 0 ? (
+                          <p className="m-0 text-sm text-stone-700">
+                            {t("deck.myCommunitiesRequiresOrgHint")}
+                          </p>
+                        ) : null}
+                      </div>
+                    </ContextHint>
+                  </div>
 
                   {orgMemberships.length > 1 ? (
                     <div className="mb-3">

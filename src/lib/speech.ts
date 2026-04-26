@@ -656,12 +656,20 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
 
   recognition.onerror = (event: { error: string }) => {
     if (event.error === "aborted") return;
+    /**
+     * Chromium sets `error === "network"` when the *browser’s* online speech service fails
+     * (separate from your app’s server). It is often *not* “the internet is down” — VPNs, corporate
+     * filters, or brief Google STT outages can trigger it; it can also appear spuriously when
+     * recognition is restarted often (`continuous` + onend loops).
+     */
     const msg =
       event.error === "not-allowed"
         ? "Microphone access denied."
         : event.error === "no-speech"
           ? "No speech detected."
-          : `Speech recognition error: ${event.error}`;
+          : event.error === "network"
+            ? "The browser’s speech-recognition service was unreachable. This is not the same as a normal website failing to load. Try again in a moment, reload the page, or switch network/VPN/browser if it keeps happening."
+            : `Speech recognition error: ${event.error}`;
     options.onError?.(msg);
   };
 

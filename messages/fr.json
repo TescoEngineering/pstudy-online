@@ -86,6 +86,7 @@
     "private": "Privé",
     "deleteDeckConfirm": "Supprimer ce paquet ?",
     "untitledDeck": "Paquet sans titre",
+    "filtersHeading": "Filtres",
     "filterDecksHint": "Filtrez par titre, domaine, thème et langue du paquet — les mêmes options que dans PstudyCommunity.",
     "noDecksMatchFilters": "Aucun paquet ne correspond à ces filtres. Modifiez les critères ou réinitialisez les filtres.",
     "clearDeckFilters": "Effacer les filtres",
@@ -202,6 +203,7 @@
     "dropHint": "Déposez un fichier .txt ici ou cliquez pour parcourir",
     "pasteHint": "Ou cliquez ici et collez (Ctrl+V)",
     "pasteNote": "Vous pouvez aussi cliquer dans la zone et coller (Ctrl+V).",
+    "dropZoneCompact": "Déposez un .txt ici, cliquez pour parcourir ou collez (Ctrl+V) lorsque la zone est active.",
     "importing": "Import en cours...",
     "deckMetaUpdateFailed": "Le paquet a été importé, mais le domaine, le sujet ou la langue n’ont pas pu être enregistrés. Vous pouvez les définir dans l’éditeur de paquet."
   },

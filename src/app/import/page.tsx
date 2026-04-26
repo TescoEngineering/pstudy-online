@@ -473,9 +473,11 @@ export default function ImportPage() {
           <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1">
             <h1 className="text-2xl font-bold text-stone-900">{t("import.title")}</h1>
             <ContextHint>
-              <p className="m-0 text-sm">
-                {t("import.dropHint")} {t("import.pasteNote")}
-              </p>
+              <div className="space-y-2">
+                <p className="m-0 text-sm">{t("import.dropHint")}</p>
+                <p className="m-0 text-sm">{t("import.pasteNote")}</p>
+                <p className="m-0 text-sm">{t("import.pasteHint")}</p>
+              </div>
             </ContextHint>
           </div>
 
@@ -500,10 +502,7 @@ export default function ImportPage() {
             {importing ? (
               <p className="text-stone-600">{t("import.importing")}</p>
             ) : (
-              <>
-                <p className="mb-1 font-medium text-stone-700">{t("import.dropHint")}</p>
-                <p className="text-sm text-stone-500">{t("import.pasteHint")}</p>
-              </>
+              <p className="m-0 text-sm font-medium text-stone-700">{t("import.dropZoneCompact")}</p>
             )}
           </div>
         </section>
@@ -512,7 +511,13 @@ export default function ImportPage() {
           <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1">
             <h2 className="text-2xl font-bold text-stone-900">{t("import.aiSectionTitle")}</h2>
             <ContextHint>
-              <p className="m-0 text-sm">{t("import.aiSectionIntro")}</p>
+              <div className="space-y-2">
+                <p className="m-0 text-sm">{t("import.aiSectionIntro")}</p>
+                <p className="m-0 text-sm">{t("import.aiBothCreatesTwoDecksNote")}</p>
+                <p className="m-0 text-sm">{t("import.dropHint")}</p>
+                <p className="m-0 text-sm">{t("import.pasteNote")}</p>
+                <p className="m-0 text-sm">{t("import.pasteHint")}</p>
+              </div>
             </ContextHint>
           </div>
 
@@ -540,8 +545,7 @@ export default function ImportPage() {
                 <p className="text-stone-600">{t("import.aiGenerating")}</p>
               ) : (
                 <>
-                  <p className="mb-1 font-medium text-stone-700">{t("import.dropHint")}</p>
-                  <p className="text-sm text-stone-500">{t("import.pasteHint")}</p>
+                  <p className="m-0 text-sm font-medium text-stone-700">{t("import.dropZoneCompact")}</p>
                   <button
                     type="button"
                     className="mt-4 text-sm font-medium text-pstudy-primary hover:underline"
@@ -650,9 +654,6 @@ export default function ImportPage() {
                 {label}
               </label>
             ))}
-            {aiOutput === "both" ? (
-              <p className="mt-2 text-xs text-stone-600">{t("import.aiBothCreatesTwoDecksNote")}</p>
-            ) : null}
           </fieldset>
 
           <label className="mt-4 block text-sm font-medium text-stone-700" htmlFor="ai-deck-lang">

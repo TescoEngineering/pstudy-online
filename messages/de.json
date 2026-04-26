@@ -86,6 +86,7 @@
     "private": "Privat",
     "deleteDeckConfirm": "Dieses Deck löschen?",
     "untitledDeck": "Unbenanntes Deck",
+    "filtersHeading": "Filter",
     "filterDecksHint": "Filtern Sie nach Titel, Bereich, Thema und Deck-Sprache — dieselben Optionen wie in PstudyCommunity.",
     "noDecksMatchFilters": "Kein Deck entspricht diesen Filtern. Passen Sie die Kriterien an oder setzen Sie die Filter zurück.",
     "clearDeckFilters": "Filter zurücksetzen",
@@ -225,6 +226,7 @@
     "dropHint": "TXT-Datei hier ablegen oder klicken zum Auswählen",
     "pasteHint": "Oder hier klicken und einfügen (Strg+V)",
     "pasteNote": "Sie können auch in die Box klicken und einfügen (Strg+V).",
+    "dropZoneCompact": "TXT-Datei hier ablegen, per Klick auswählen oder einfügen (Strg+V), wenn die Fläche aktiv ist.",
     "importing": "Importiere...",
     "deckMetaUpdateFailed": "Das Deck wurde importiert, aber Interessensgebiet, Thema oder Sprache konnten nicht gespeichert werden. Sie können sie im Deck-Editor einstellen."
   },

@@ -373,7 +373,8 @@ export default function DashboardPage() {
 
         {decks.length > 0 ? (
           <div className="mb-6">
-            <div className="mb-2">
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-sm font-medium text-stone-800">{t("dashboard.filtersHeading")}</span>
               <ContextHint>
                 <p className="m-0 text-sm text-stone-600">{t("dashboard.filterDecksHint")}</p>
               </ContextHint>

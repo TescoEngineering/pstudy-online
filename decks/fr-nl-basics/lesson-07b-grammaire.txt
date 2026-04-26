@@ -1,0 +1,3 @@
+ « Un aller simple » = een enkele reis (billeterie) — formule, A1, fixe, transport	Vaste, termen, billeterie, parfois, *aller-retour* = (heen) en terug, context.							
+ « Direction + lieu » = richting (centrum) — panneau, oral, A1, transport	Op borden, *Direction centre* = (naar) richting centrum; *Ligne B* = lijn B, context.							
+Prix, tickets, 2,20, oral — chiffre, virgule, A1, rappel, court, transport, context	Zelfde, logica, *deux*, *virgule*, *20*, côté, oral, salle, context, voir, nombres, fiche, separée, ici, ok, A1, fixe, context.							

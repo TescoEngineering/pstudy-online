@@ -1,0 +1,35 @@
+le nom	de naam							
+le prénom	de voornaam							
+une personne	een persoon							
+un homme	een man							
+une femme	een vrouw							
+un ami	een (mannelijke) vriend							
+une amie	een (vrouwelijke) vriendin							
+le pays	het land							
+la France	Frankrijk (als land)					https://upload.wikimedia.org/wikipedia/commons/c/c3/Flag_of_France.svg	Vlag: Frankrijk (past bij de term).	
+la Belgique	België (als land)					https://upload.wikimedia.org/wikipedia/commons/6/65/Flag_of_Belgium.svg	Vlag: België (past bij de term).	
+le français	het Frans							
+le néerlandais	het Nederlands							
+le bonjour	de begroeting / “hallo”							
+le bonsoir	de avondbegroeting (“goedenavond”)							
+un matin	een ochtend (le matin = ’s ochtends)							
+un soir	een avond (le soir = ’s avonds)							
+une journée	een dag (werkdag / korte periode overdag)							
+une poignée de main	een handdruk (zo begroet je)					https://upload.wikimedia.org/wikipedia/commons/9/9d/Handshake_%283575000735%29.jpg	Afbeelding: handdruk = wat de Franse zin letterlijk bedoelt.	
+la conversation	het gesprek							
+une introduction	een korte voorstelling / introductie							
+une rencontre	een ontmoeting (eerste keer)							
+le plaisir	het plezier (“avec plaisir” = met plezier)							
+madame	mevrouw (titel + naam of alleen als aanspreking)							
+monsieur	meneer (id.)							
+mademoiselle	juffrouw / mejuffrouw (informeler, minder gebruikelijk op het werk)							
+merci	dank u / dank je (vaak zonder artikel als interjectie)							
+s’il vous plaît	alstublieft (beleefd, met u)							
+la politesse	de beleefdheid							
+le respect	het respect							
+le début	het begin (van het gesprek)							
+la fin	het einde							
+les adieux (m. pl.)	afscheid nemen (formeler; “faire ses adieux”)							
+au revoir (formule)	tot ziens (vaste afscheidszin; geen lidwoord in de zin)							
+à bientôt (formule)	tot gauw / tot snel (vaste zin)							
+Enchanté. / Enchantée. (formule)	Aangename kennismaking (bij de eerste kennismaking) — m./v. vorm.							

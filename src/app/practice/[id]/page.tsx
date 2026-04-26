@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useTranslation } from "@/lib/i18n";
 import { useToast } from "@/components/Toast";
 import { HelpNavLink } from "@/components/HelpNavLink";
+import { ContextHint } from "@/components/ContextHint";
 import { Deck, PStudyItem } from "@/types/pstudy";
 import { createClient } from "@/lib/supabase/client";
 import { fetchDeck } from "@/lib/supabase/decks";
@@ -1463,11 +1464,19 @@ export default function PracticePage() {
                       {t("practice.flashcardBrowseOnly")}
                     </span>
                   </label>
-                  <p className="w-full text-xs text-stone-500 sm:max-w-xl">
-                    {flashcardBrowseOnly
-                      ? t("practice.flashcardBrowseHint")
-                      : t("practice.flashcardFormatHint")}
-                  </p>
+                  <div
+                    className="w-full max-w-xl sm:max-w-xl"
+                    onClick={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    <ContextHint>
+                      <p className="m-0 text-sm text-stone-700">
+                        {flashcardBrowseOnly
+                          ? t("practice.flashcardBrowseHint")
+                          : t("practice.flashcardFormatHint")}
+                      </p>
+                    </ContextHint>
+                  </div>
                 </>
               ) : null}
               <label className="flex items-center gap-2">
@@ -1483,22 +1492,30 @@ export default function PracticePage() {
               </label>
               {(mode === "straight" || mode === "flashcard") && (
                 <div className="flex w-full min-w-[min(100%,20rem)] flex-col gap-1">
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={keywordClozeMode}
-                      onChange={(e) => setKeywordClozeMode(e.target.checked)}
-                      className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
-                    />
-                    <span className="text-sm text-stone-700">
-                      {t("practice.keywordClozeMode")}
-                    </span>
-                  </label>
-                  <p className="text-xs text-stone-500">{t("practice.keywordClozeHint")}</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={keywordClozeMode}
+                        onChange={(e) => setKeywordClozeMode(e.target.checked)}
+                        className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                      />
+                      <span className="text-sm text-stone-700">
+                        {t("practice.keywordClozeMode")}
+                      </span>
+                    </label>
+                    <ContextHint>
+                      <p className="m-0 text-sm text-stone-700">
+                        {t("practice.keywordClozeHint")}
+                      </p>
+                    </ContextHint>
+                  </div>
                   {keywordClozeMode &&
                     current &&
                     splitKeywordTagsForHighlight(String(current.keywords ?? "")).length === 0 && (
-                      <p className="text-xs text-amber-800">{t("practice.keywordClozeNoKeywordsHint")}</p>
+                      <p className="text-xs text-amber-800" role="status">
+                        {t("practice.keywordClozeNoKeywordsHint")}
+                      </p>
                     )}
                 </div>
               )}
@@ -1525,7 +1542,11 @@ export default function PracticePage() {
             </label>
           )}
           {mode === "multiple-choice" && (
-            <p className="w-full text-xs text-stone-500">{t("practice.speechMcNoMic")}</p>
+            <div className="w-full" onClick={(e) => e.stopPropagation()}>
+              <ContextHint>
+                <p className="m-0 text-sm text-stone-700">{t("practice.speechMcNoMic")}</p>
+              </ContextHint>
+            </div>
           )}
           {(mode === "straight" || mode === "flashcard") && speakMode && mode === "straight" && (
             <label className="flex cursor-pointer items-center gap-2">
@@ -1591,11 +1612,25 @@ export default function PracticePage() {
                 setSpeechMappingPanelOpen((e.currentTarget as HTMLDetailsElement).open);
               }}
             >
-              <summary className="cursor-pointer select-none text-sm font-medium text-stone-700">
-                {t("practice.deckSttAliasesSummary")}
+              <summary className="flex list-none cursor-pointer select-none items-center gap-1.5 text-sm font-medium text-stone-700 [&::-webkit-details-marker]:hidden">
+                <span>{t("practice.deckSttAliasesSummary")}</span>
+                <span
+                  className="inline-flex"
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <ContextHint>
+                    <div className="space-y-2">
+                      <p className="m-0 text-sm text-amber-800/90">
+                        {t("practice.deckSttAliasesPausesExercise")}
+                      </p>
+                      <p className="m-0 text-sm text-stone-700">
+                        {t("practice.deckSttAliasesHint")}
+                      </p>
+                    </div>
+                  </ContextHint>
+                </span>
               </summary>
-              <p className="mt-2 text-xs text-amber-800/90">{t("practice.deckSttAliasesPausesExercise")}</p>
-              <p className="mt-2 text-xs text-stone-500">{t("practice.deckSttAliasesHint")}</p>
               <div className="mt-3 space-y-2">
                 {sttAliasRows.map((row, i) => (
                   <div key={i} className="flex flex-wrap items-center gap-2">
@@ -1912,7 +1947,13 @@ export default function PracticePage() {
                       </button>
                     </div>
                   ) : null}
-                  <p className="text-xs text-stone-500">{t("practice.flashcardBrowseKeys")}</p>
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <ContextHint>
+                      <p className="m-0 text-sm text-stone-700">
+                        {t("practice.flashcardBrowseKeys")}
+                      </p>
+                    </ContextHint>
+                  </div>
                 </div>
               ) : (
               <div className="mx-auto w-full max-w-xl space-y-4">
@@ -1923,12 +1964,19 @@ export default function PracticePage() {
                         {t("practice.keywordClozePromptLabel")}
                       </p>
                     )}
-                    <label
-                      htmlFor="flashcard-back-input"
-                      className="mb-2 block text-sm font-medium text-stone-700"
-                    >
-                      {t("practice.flashcardTypeBack")}
-                    </label>
+                    <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                      <label
+                        htmlFor="flashcard-back-input"
+                        className="m-0 block text-sm font-medium text-stone-700"
+                      >
+                        {t("practice.flashcardTypeBack")}
+                      </label>
+                      <ContextHint>
+                        <p className="m-0 text-sm text-stone-700">
+                          {t("practice.flashcardEnterToFlip")}
+                        </p>
+                      </ContextHint>
+                    </div>
                     <textarea
                       id="flashcard-back-input"
                       value={answer}
@@ -1958,9 +2006,6 @@ export default function PracticePage() {
                       className="flashcard-answer-matched w-full rounded-xl border border-stone-300 bg-white px-4 py-3 font-mono text-base leading-relaxed text-stone-800 shadow-sm focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary"
                       autoFocus
                     />
-                    <p className="mt-1.5 text-xs text-stone-500">
-                      {t("practice.flashcardEnterToFlip")}
-                    </p>
                   </div>
                 ) : (
                   <div className="flashcard-answer-matched flex flex-col overflow-hidden rounded-xl border border-stone-200 bg-white p-5 shadow-sm">

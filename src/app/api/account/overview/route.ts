@@ -1,6 +1,17 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import type { AccountOverviewPayload } from "@/lib/account-overview";
+import type { AccountOverviewPayload, AccountCommunityRow } from "@/lib/account-overview";
+import type { OrganizationRole } from "@/types/organization";
+
+function isOrganizationSchemaMissingError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string } | null | undefined;
+  const msg = (e?.message ?? "").toLowerCase();
+  const code = String(e?.code ?? "");
+  if (code === "PGRST205") return true;
+  if (msg.includes("schema cache") && msg.includes("organization")) return true;
+  if (msg.includes("does not exist") && msg.includes("organization")) return true;
+  return false;
+}
 
 function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -103,6 +114,39 @@ export async function GET() {
       ? process.env.NEXT_PUBLIC_AI_CREDITS_HINT.trim()
       : null;
 
+  let communities: AccountCommunityRow[] = [];
+  const { data: orgMemberRows, error: orgErr } = await supabase
+    .from("organization_members")
+    .select("organization_id, role, organizations(id, name, slug)")
+    .eq("user_id", user.id);
+
+  if (orgErr) {
+    if (!isOrganizationSchemaMissingError(orgErr)) {
+      return bad(orgErr.message, 500);
+    }
+  } else {
+    type OrgRow = {
+      organization_id: string;
+      role: OrganizationRole;
+      organizations:
+        | { id: string; name: string; slug: string | null }
+        | { id: string; name: string; slug: string | null }[]
+        | null;
+    };
+    for (const r of (orgMemberRows ?? []) as OrgRow[]) {
+      const org = Array.isArray(r.organizations) ? r.organizations[0] : r.organizations;
+      if (org) {
+        communities.push({
+          organizationId: r.organization_id,
+          name: org.name,
+          slug: org.slug ?? null,
+          role: r.role,
+        });
+      }
+    }
+    communities.sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
+  }
+
   const payload: AccountOverviewPayload = {
     email: user.email ?? null,
     memberSince: user.created_at ?? null,
@@ -116,6 +160,7 @@ export async function GET() {
     examsIssued: examsIssued ?? 0,
     examsToTake,
     aiCreditsHint,
+    communities,
   };
 
   return NextResponse.json(payload);

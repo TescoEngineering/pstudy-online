@@ -9,6 +9,16 @@ import { Logo } from "@/components/Logo";
 import { HelpNavLink } from "@/components/HelpNavLink";
 import { ContextHint } from "@/components/ContextHint";
 import type { AccountOverviewPayload } from "@/lib/account-overview";
+import type { OrganizationRole } from "@/types/organization";
+
+function communityRoleLabel(role: OrganizationRole, t: (key: string) => string) {
+  const k: Record<OrganizationRole, string> = {
+    student: "school.roleStudent",
+    teacher: "school.roleTeacher",
+    admin: "school.roleAdmin",
+  };
+  return t(k[role]);
+}
 
 function StatCard({
   title,
@@ -196,6 +206,39 @@ export default function AccountPage() {
               <BigNum value={sharedTotal} />
             </StatCard>
 
+            <StatCard
+              title={t("account.sectionCommunities")}
+              hint={t("account.communitiesHint")}
+              className="md:col-span-2"
+            >
+              {data.communities.length === 0 ? (
+                <p className="m-0 text-sm leading-relaxed text-stone-600">
+                  {t("account.communitiesEmpty")}
+                </p>
+              ) : (
+                <ul className="m-0 list-none space-y-2 p-0">
+                  {data.communities.map((c) => (
+                    <li
+                      key={c.organizationId}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-stone-50/90 px-4 py-3"
+                    >
+                      <span className="font-medium text-stone-900">{c.name}</span>
+                      <span className="text-sm text-stone-600">
+                        {communityRoleLabel(c.role, t)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {data.communities.length > 0 ? (
+                <p className="mb-0 mt-4 text-sm">
+                  <Link href="/school" className="font-medium text-pstudy-primary hover:underline">
+                    {t("account.linkCommunities")}
+                  </Link>
+                </p>
+              ) : null}
+            </StatCard>
+
             <StatCard title={t("account.sectionExams")}>
               <div className="space-y-4">
                 <div>
@@ -251,6 +294,11 @@ export default function AccountPage() {
                   <li>
                     <Link href="/my-exams" className="btn-secondary text-sm">
                       {t("account.linkAssigned")}
+                    </Link>
+                  </li>
+                  <li>
+                    <Link href="/school" className="btn-secondary text-sm">
+                      {t("account.linkCommunities")}
                     </Link>
                   </li>
                   <li>
