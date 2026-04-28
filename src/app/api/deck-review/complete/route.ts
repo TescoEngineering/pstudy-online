@@ -74,8 +74,7 @@ export async function POST(request: NextRequest) {
       changed_at: now,
       source: "peer_review",
       source_id: invite.id,
-    })
-    .catch(() => null);
+    });
 
   const { error: uInv } = await admin
     .from("deck_review_invites")
