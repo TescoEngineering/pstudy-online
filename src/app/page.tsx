@@ -3,48 +3,47 @@
 import Link from "next/link";
 import { useTranslation } from "@/lib/i18n";
 import { Logo } from "@/components/Logo";
+import { ContextHint } from "@/components/ContextHint";
+import { AppHeader, AppHeaderLink } from "@/components/AppHeader";
 
 export default function HomePage() {
   const { t } = useTranslation();
   return (
     <div className="min-h-screen bg-gradient-to-b from-teal-50 to-stone-100">
-      <header className="border-b border-stone-200 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-          <Logo size="md" withText />
-          <nav className="flex gap-4">
-            <Link
-              href="/login"
-              className="text-stone-600 hover:text-pstudy-primary"
-            >
-              {t("home.logIn")}
-            </Link>
-            <a href="/dashboard" className="btn-primary cursor-pointer no-underline">
-              {t("home.getStarted")}
-            </a>
-          </nav>
-        </div>
-      </header>
+      <AppHeader
+        nav={
+          <>
+            <AppHeaderLink href="/help">{t("help.nav")}</AppHeaderLink>
+            <AppHeaderLink href="/login">{t("home.logIn")}</AppHeaderLink>
+          </>
+        }
+      />
 
       <main className="mx-auto max-w-4xl px-4 py-16 text-center">
         <h1 className="mb-4 text-4xl font-bold tracking-tight text-stone-900 md:text-5xl">
           {t("home.title")}
         </h1>
-        <p className="mb-10 text-lg text-stone-600">
-          {t("home.subtitle")}
-        </p>
+        <div className="mb-10 flex justify-center">
+          <ContextHint>
+            <div className="space-y-3">
+              <p className="m-0 text-base text-stone-700">{t("home.subtitle")}</p>
+              <p className="m-0 text-sm text-stone-600">{t("home.trialPricingLine")}</p>
+            </div>
+          </ContextHint>
+        </div>
         <div className="flex flex-wrap justify-center gap-4">
-          <a
-            href="/dashboard"
+          <Link
+            href="/login"
             className="btn-primary cursor-pointer text-lg no-underline"
           >
-            {t("home.openApp")}
-          </a>
-          <a
-            href="/import"
+            {t("home.startFreeTrial")}
+          </Link>
+          <Link
+            href="/login"
             className="btn-secondary cursor-pointer text-lg no-underline"
           >
-            {t("home.importTxt")}
-          </a>
+            {t("home.logIn")}
+          </Link>
         </div>
 
         <section className="mt-20 text-left">
@@ -58,6 +57,8 @@ export default function HomePage() {
             <li>✓ {t("home.feature4")}</li>
             <li>✓ {t("home.feature5")}</li>
             <li>✓ {t("home.feature6")}</li>
+            <li>✓ {t("home.feature7")}</li>
+            <li>✓ {t("home.feature8")}</li>
           </ul>
         </section>
       </main>

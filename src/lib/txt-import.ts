@@ -1,6 +1,6 @@
 /**
  * PSTUDY desktop .txt format: tab-separated per line
- * description \t explanation \t mc1 \t mc2 \t mc3 \t mc4 \t picture \t instruction
+ * description \t explanation \t mc1 \t mc2 \t mc3 \t mc4 \t picture \t instruction \t keywords (optional)
  * First line "PSTUDYEXAMFILE" = exam file (we still import items after it, or skip).
  */
 
@@ -94,7 +94,7 @@ function tryDecodeLegacyPictureToDataUrl(raw: string): { url: string; wasBase64:
 function parseLine(line: string): string[] {
   const parts = line.split("\t");
   const out = [...parts];
-  while (out.length < 8) out.push("");
+  while (out.length < 9) out.push("");
   return out;
 }
 
@@ -107,7 +107,9 @@ export interface ImportResult {
 export function parsePStudyTxt(text: string): ImportResult {
   const errors: string[] = [];
   const items: PStudyItem[] = [];
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  // Strip UTF-8 BOM so the first column parses (some editors add BOM to .txt).
+  const normalized = text.replace(/^\uFEFF/, "");
+  const lines = normalized.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   let wasExamFile = false;
   let index = 0;
   let base64PictureCount = 0;
@@ -128,6 +130,7 @@ export function parsePStudyTxt(text: string): ImportResult {
       mc4,
       picture,
       instruction,
+      keywords,
     ] = parts;
     if (!description && !explanation) continue;
 
@@ -144,6 +147,7 @@ export function parsePStudyTxt(text: string): ImportResult {
       multiplechoice4: mc4 ?? "",
       picture_url: pic.url ?? "",
       instruction: instruction ?? "",
+      keywords: keywords ?? "",
     });
   }
 
@@ -169,7 +173,13 @@ export function generatePStudyTxt(items: PStudyItem[]): string {
           it.multiplechoice4,
           it.picture_url,
           it.instruction,
+          it.keywords ?? "",
         ].join("\t")
     )
     .join("\n");
+}
+
+/** Tab-separated export for rows without persisted ids (e.g. AI JSON before saving). */
+export function formatPStudyRowsAsTxt(rows: Omit<PStudyItem, "id">[]): string {
+  return generatePStudyTxt(rows.map((it, i) => ({ ...it, id: `export-${i}` })));
 }

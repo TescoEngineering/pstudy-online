@@ -3,6 +3,16 @@
  * Field of Interest = broad category; Topic = specific sub-category.
  */
 
+import { SPEECH_LANGUAGES } from "@/lib/speech-languages";
+
+/** Topic options for "Languages" = every label from practice/speak {@link SPEECH_LANGUAGES}, sorted, with "Other" last. */
+const LANGUAGES_TOPICS: readonly string[] = (() => {
+  const names = new Set(SPEECH_LANGUAGES.map((l) => l.name));
+  const arr = Array.from(names);
+  arr.sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
+  return [...arr, "Other"];
+})();
+
 export const FIELDS_OF_INTEREST = [
   "Geography",
   "History",
@@ -25,7 +35,7 @@ export const TOPICS_BY_FIELD: Record<FieldOfInterest, readonly string[]> = {
   History: ["Prehistoric", "Middle Ages", "Ancient", "Modern", "World Wars", "Other"],
   Science: ["Medical sciences", "Physics", "Mathematics", "Biology", "Chemistry", "Earth & Space", "Other"],
   Music: ["Classical", "Jazz", "Pop", "Rock", "Folk", "Other"],
-  Languages: ["French", "English", "Spanish", "German", "Dutch", "Italian", "Other"],
+  Languages: LANGUAGES_TOPICS,
   Professional: ["Business", "Law", "Medicine", "Engineering", "IT", "Finance", "EHS", "Other"],
   Sports: ["Football", "Tennis", "Cycling", "Swimming", "Running", "Other"],
   Hobbys: ["Crafts", "Gardening", "Photography", "Collecting", "Cooking", "Other"],

@@ -15,7 +15,12 @@ export function AuthRedirect() {
     const tokenHash = params.get("token_hash") ?? params.get("token");
     const type = params.get("type");
     const hash = window.location.hash || "";
-    const hasHashTokens = hash.includes("access_token") || hash.includes("type=recovery");
+    const h = hash.toLowerCase();
+    const hasHashTokens =
+      h.includes("access_token") ||
+      h.includes("refresh_token") ||
+      h.includes("type=recovery") ||
+      h.includes("type%3drecovery");
     if (tokenHash && (type === "recovery" || type === "email")) {
       window.location.replace(
         `/auth/callback?token_hash=${encodeURIComponent(tokenHash)}&type=${type}`

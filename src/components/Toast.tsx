@@ -5,6 +5,7 @@ import {
   useContext,
   useState,
   useCallback,
+  useMemo,
   type ReactNode,
 } from "react";
 
@@ -50,8 +51,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     [addToast]
   );
 
+  const value = useMemo(
+    () => ({ toast, success, error }),
+    [toast, success, error]
+  );
+
   return (
-    <ToastContext.Provider value={{ toast, success, error }}>
+    <ToastContext.Provider value={value}>
       {children}
       <div
         className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2"

@@ -93,7 +93,6 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       key: string,
       params?: Record<string, string | number> & { count?: number }
     ): string => {
-      if (!mounted) return key;
       let lookupKey = key;
       if (params?.count !== undefined) {
         const pluralKey = key.replace(/(\w+)$/, "$1_plural");
@@ -114,7 +113,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       }
       return msg;
     },
-    [locale, mounted]
+    [locale]
   );
 
   return (

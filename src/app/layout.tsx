@@ -6,7 +6,7 @@ import { ClientProviders } from "@/components/ClientProviders";
 export const metadata: Metadata = {
   title: "PSTUDY – Study more effectively",
   description:
-    "Study languages, vocabulary, and any subject with custom exercises. Practice and exams online.",
+    "Languages, vocabulary, and any subject: flashcards, speech practice, multiple choice, and timed exams in the browser.",
 };
 
 export default function RootLayout({

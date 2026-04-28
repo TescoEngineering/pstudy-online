@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useLayoutEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -20,19 +20,29 @@ export default function LoginPage() {
   const [forgotPassword, setForgotPassword] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [recoveryMode, setRecoveryMode] = useState(false);
+  const [authLinkFailed, setAuthLinkFailed] = useState(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const tokenHash = params.get("token_hash") ?? params.get("token");
     const type = params.get("type");
+    if (tokenHash && (type === "recovery" || type === "email")) {
+      window.location.replace(
+        `/auth/callback?token_hash=${encodeURIComponent(tokenHash)}&type=${type || "recovery"}`
+      );
+      return;
+    }
     if (params.get("recovery") === "1") {
       setRecoveryMode(true);
       window.history.replaceState(null, "", "/login");
       return;
     }
-    if (tokenHash && (type === "recovery" || type === "email")) {
-      window.location.replace(`/auth/callback?token_hash=${encodeURIComponent(tokenHash)}&type=${type || "recovery"}`);
+    if (params.get("error") === "auth") {
+      setAuthLinkFailed(true);
+      params.delete("error");
+      const rest = params.toString();
+      window.history.replaceState(null, "", rest ? `/login?${rest}` : "/login");
     }
   }, []);
 
@@ -66,7 +76,13 @@ export default function LoginPage() {
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        router.push("/dashboard");
+        const next =
+          typeof window !== "undefined"
+            ? new URLSearchParams(window.location.search).get("next")
+            : null;
+        const dest =
+          next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+        router.push(dest);
         router.refresh();
       }
     } catch (err: unknown) {
@@ -141,6 +157,22 @@ export default function LoginPage() {
         <h1 className="mb-6 text-xl font-bold text-stone-900">
           {forgotPassword ? t("login.resetPassword") : isSignUp ? t("login.createAccount") : t("login.logIn")}
         </h1>
+
+        {authLinkFailed && (
+          <div
+            role="alert"
+            className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+          >
+            <p className="mb-2">{t("login.authLinkInvalid")}</p>
+            <button
+              type="button"
+              onClick={() => setAuthLinkFailed(false)}
+              className="text-pstudy-primary underline hover:no-underline"
+            >
+              {t("login.dismissHint")}
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -235,6 +267,10 @@ export default function LoginPage() {
         <p className="mt-4 text-center text-sm text-stone-500">
           <Link href="/" className="text-pstudy-primary hover:underline">
             {t("login.backToHome")}
+          </Link>
+          {" · "}
+          <Link href="/help" className="text-pstudy-primary hover:underline">
+            {t("help.nav")}
           </Link>
         </p>
       </div>

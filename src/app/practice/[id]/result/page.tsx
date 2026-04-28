@@ -4,10 +4,16 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Suspense } from "react";
 import { useTranslation } from "@/lib/i18n";
+import { HelpNavLink } from "@/components/HelpNavLink";
 
 function ResultLoadingFallback() {
   const { t } = useTranslation();
-  return <p className="text-center text-stone-600">{t("common.loading")}</p>;
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-stone-50 px-4">
+      <p className="text-stone-600">{t("common.loading")}</p>
+      <HelpNavLink />
+    </div>
+  );
 }
 
 function ResultContent() {
@@ -20,6 +26,9 @@ function ResultContent() {
 
   return (
     <div className="mx-auto max-w-md px-4 py-12 text-center">
+      <div className="mb-6 flex justify-end text-sm">
+        <HelpNavLink />
+      </div>
       <h1 className="mb-4 text-2xl font-bold text-stone-900">{t("result.complete")}</h1>
       <div className="card mb-6">
         <p className="text-4xl font-bold text-pstudy-primary">{pct}%</p>
