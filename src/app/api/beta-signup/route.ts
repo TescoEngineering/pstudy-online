@@ -16,6 +16,13 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+function parseBetaCap(): number {
+  const raw = (process.env.BETA_SIGNUP_CAP ?? "").trim();
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return 50;
+  return n;
+}
+
 export async function POST(request: Request) {
   const admin = createAdminClient();
   if (!admin) return bad("SUPABASE_SERVICE_ROLE_KEY is missing", 500);
@@ -42,7 +49,8 @@ export async function POST(request: Request) {
     .select("*", { count: "exact", head: true });
   if (cErr) return bad(cErr.message, 500);
 
-  const isFull = (count ?? 0) >= 50;
+  const cap = parseBetaCap();
+  const isFull = (count ?? 0) >= cap;
 
   if (isFull) {
     const { error: wErr } = await admin.from("waitlist").insert({
