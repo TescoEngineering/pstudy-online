@@ -27,6 +27,8 @@ export async function POST(request: Request) {
   const admin = createAdminClient();
   if (!admin) return bad("SUPABASE_SERVICE_ROLE_KEY is missing", 500);
 
+  const cap = parseBetaCap();
+
   let body: Body;
   try {
     body = (await request.json()) as Body;
@@ -49,7 +51,6 @@ export async function POST(request: Request) {
     .select("*", { count: "exact", head: true });
   if (cErr) return bad(cErr.message, 500);
 
-  const cap = parseBetaCap();
   const isFull = (count ?? 0) >= cap;
 
   if (isFull) {
@@ -72,23 +73,38 @@ export async function POST(request: Request) {
     },
   });
 
+  const invErrMsg = String(invErr?.message ?? "").toLowerCase();
+  const userAlreadyExists =
+    !!invErr &&
+    (invErrMsg.includes("already") ||
+      invErrMsg.includes("registered") ||
+      invErrMsg.includes("exists"));
+
   // If the user already exists, we still treat this as accepted.
-  if (invErr && !String(invErr.message ?? "").toLowerCase().includes("already")) {
+  if (invErr && !userAlreadyExists) {
     return bad(invErr.message || "Could not create user", 500);
   }
 
   const userId = inv?.user?.id ?? null;
 
-  const { error: bErr } = await admin.from("beta_signups").insert({
-    user_id: userId,
-    email,
-    name,
-    use_case_note: useCase,
-    signup_source: "beta",
-  });
+  const { error: bErr } = await admin.from("beta_signups").upsert(
+    {
+      user_id: userId,
+      email,
+      name,
+      use_case_note: useCase,
+      signup_source: "beta",
+    },
+    { onConflict: "email" }
+  );
 
   if (bErr) return bad(bErr.message, 500);
 
-  return NextResponse.json({ ok: true, status: "accepted" as const, email });
+  return NextResponse.json({
+    ok: true,
+    status: "accepted" as const,
+    email,
+    user_already_exists: userAlreadyExists,
+  });
 }
 

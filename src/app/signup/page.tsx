@@ -15,9 +15,9 @@ export default function SignupPage() {
   const [useCase, setUseCase] = useState("");
   const [acceptedBeta, setAcceptedBeta] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<null | { status: "accepted" | "waitlist"; email: string }>(
-    null
-  );
+  const [result, setResult] = useState<
+    null | { status: "accepted" | "waitlist"; email: string; userAlreadyExists?: boolean }
+  >(null);
   const [error, setError] = useState("");
 
   const canSubmit = useMemo(() => {
@@ -49,7 +49,11 @@ export default function SignupPage() {
         setError(json?.error ? String(json.error) : t("common.somethingWentWrong"));
         return;
       }
-      setResult({ status: json.status, email: String(json.email ?? email.trim()) });
+      setResult({
+        status: json.status,
+        email: String(json.email ?? email.trim()),
+        userAlreadyExists: Boolean(json.user_already_exists),
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.somethingWentWrong"));
     } finally {
@@ -75,12 +79,16 @@ export default function SignupPage() {
           <>
             <h1 className="text-3xl font-bold text-stone-900">
               {result.status === "accepted"
-                ? "Welcome — check your email to confirm your account."
+                ? result.userAlreadyExists
+                  ? "Account already exists — please log in (or use password reset)."
+                  : "Welcome — check your email to confirm your account."
                 : "Beta is full — you're on the waitlist."}
             </h1>
             <p className="mt-3 text-stone-700">
               {result.status === "accepted"
-                ? `We sent a confirmation link to ${result.email}. Once confirmed, you can log in and start using PSTUDY.`
+                ? result.userAlreadyExists
+                  ? `This email (${result.email}) already has a PSTUDY account. Please log in, or use password reset if needed.`
+                  : `We sent a confirmation link to ${result.email}. Once confirmed, you can log in and start using PSTUDY.`
                 : `We'll email ${result.email} when a spot opens or when paid plans launch.`}
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
