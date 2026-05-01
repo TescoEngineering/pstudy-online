@@ -157,7 +157,8 @@ export default function ExamsListPage() {
                     {r.exam_type === "multiple-choice"
                       ? t("exam.typeMultipleChoice")
                       : `${t("exam.typeStraightAnswer")} (${r.grading_mode === "exact-match" ? t("exam.gradingExact") : t("exam.gradingLenient")})`} ·{" "}
-                    {t("exam.invites")}: {r.invite_count} · {t("exam.items", { count: r.deck.itemCount })}
+                    {t("exam.invites")}: {r.invite_count} · {r.deck.itemCount}{" "}
+                    {r.deck.itemCount === 1 ? t("dashboard.items") : t("dashboard.items_plural")}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
