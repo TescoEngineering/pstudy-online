@@ -52,6 +52,8 @@ import {
   isFieldTopicPairUsedInOwnedDecks,
   saveDeckWithItems,
 } from "@/lib/supabase/decks";
+import { buildPStudyTxtFileContents } from "@/lib/txt-import";
+import { downloadTextFile, sanitizeDeckExportBasename } from "@/lib/deck-export";
 import { ExpandableField } from "@/components/ExpandableField";
 import { PictureUpload } from "@/components/PictureUpload";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -209,6 +211,19 @@ export default function DeckEditorPage() {
     const preset = new Set(getTopicsForField(fk));
     return (userTopicsMap[fk] ?? []).filter((t) => !preset.has(t));
   }, [effectiveFieldForTopicList, userTopicsMap]);
+
+  const handleExportTxt = useCallback(() => {
+    if (!deck) return;
+    try {
+      const titleForFile = (title.trim() || deck.title || "").trim() || t("dashboard.untitledDeck");
+      const base = sanitizeDeckExportBasename(titleForFile);
+      const content = buildPStudyTxtFileContents(titleForFile, deck.items);
+      downloadTextFile(base, content);
+      toast.success(t("dashboard.exportDeckSuccess"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("dashboard.exportDeckFailed"));
+    }
+  }, [deck, title, toast, t]);
 
   const columnFilterSummary = useMemo(() => {
     const n =
@@ -1587,6 +1602,9 @@ export default function DeckEditorPage() {
           <Link href={`/practice/${id}`} className="btn-primary text-sm">
             {t("common.practice")}
           </Link>
+          <button type="button" onClick={handleExportTxt} className="btn-secondary text-sm">
+            {t("dashboard.exportAsTxt")}
+          </button>
           <div className="relative" ref={columnMenuRef}>
             <button
               type="button"

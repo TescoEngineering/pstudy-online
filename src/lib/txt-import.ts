@@ -2,6 +2,7 @@
  * PSTUDY desktop .txt format: tab-separated per line
  * description \t explanation \t mc1 \t mc2 \t mc3 \t mc4 \t picture \t instruction \t keywords (optional)
  * First line "PSTUDYEXAMFILE" = exam file (we still import items after it, or skip).
+ * Lines whose trimmed text starts with "#" are treated as comments and skipped (backward-compatible).
  */
 
 import { PStudyItem } from "@/types/pstudy";
@@ -98,6 +99,15 @@ function parseLine(line: string): string[] {
   return out;
 }
 
+/** Normalize a cell for one-line TSV export (tabs/newlines would break the row layout). */
+function exportCell(value: string | undefined): string {
+  return String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\n/g, " ")
+    .replace(/\t/g, " ");
+}
+
 export interface ImportResult {
   items: PStudyItem[];
   wasExamFile: boolean;
@@ -116,6 +126,7 @@ export function parsePStudyTxt(text: string): ImportResult {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    if (line.startsWith("#")) continue;
     if (line === EXAM_HEADER) {
       wasExamFile = true;
       continue;
@@ -165,18 +176,37 @@ export function generatePStudyTxt(items: PStudyItem[]): string {
     .map(
       (it) =>
         [
-          it.description,
-          it.explanation,
-          it.multiplechoice1,
-          it.multiplechoice2,
-          it.multiplechoice3,
-          it.multiplechoice4,
-          it.picture_url,
-          it.instruction,
-          it.keywords ?? "",
+          exportCell(it.description),
+          exportCell(it.explanation),
+          exportCell(it.multiplechoice1),
+          exportCell(it.multiplechoice2),
+          exportCell(it.multiplechoice3),
+          exportCell(it.multiplechoice4),
+          exportCell(it.picture_url),
+          exportCell(it.instruction),
+          exportCell(it.keywords),
         ].join("\t")
     )
     .join("\n");
+}
+
+const EXPORT_COMMENT_LINES = [
+  "# PSTUDY deck export (UTF-8)",
+  "# One row per item; columns are tab-separated, in this order:",
+  "#   description, explanation, mc1, mc2, mc3, mc4, picture_url, instruction, keywords",
+  "# picture_url may be an https URL or a legacy data:image/...;base64,... value.",
+  "# Lines starting with '#' are ignored by Import .txt (comments).",
+  "# The legacy first line PSTUDYEXAMFILE is still recognized by import.",
+  "# Tab, carriage return, and newline characters inside a cell are normalized to spaces on export.",
+];
+
+/**
+ * Full .txt file contents for download: header comments + body lines accepted by {@link parsePStudyTxt}.
+ */
+export function buildPStudyTxtFileContents(deckTitle: string, items: PStudyItem[]): string {
+  const safeTitle = exportCell(deckTitle);
+  const header = [...EXPORT_COMMENT_LINES, `# Deck title: ${safeTitle}`].join("\n");
+  return `${header}\n${generatePStudyTxt(items)}`;
 }
 
 /** Tab-separated export for rows without persisted ids (e.g. AI JSON before saving). */

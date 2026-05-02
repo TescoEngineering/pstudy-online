@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useTranslation } from "@/lib/i18n";
 import {
   fetchDecks,
+  fetchDeck,
   createDeck,
   deleteDeck as deleteDeckDb,
   mergeDecksIntoNew,
@@ -16,6 +17,8 @@ import {
   updateDeck,
   type PublicDecksFilters,
 } from "@/lib/supabase/decks";
+import { buildPStudyTxtFileContents } from "@/lib/txt-import";
+import { downloadTextFile, sanitizeDeckExportBasename } from "@/lib/deck-export";
 import { filterDecksByPublicDeckFilters } from "@/lib/deck-list-filters";
 import { FIELDS_OF_INTEREST, getTopicsForField, getAllTopics } from "@/lib/deck-attributes";
 import { DECK_CONTENT_LANGUAGE_CODES, parseDeckContentLanguages } from "@/lib/deck-content-language";
@@ -41,6 +44,7 @@ export default function DashboardPage() {
   const [renameDeckId, setRenameDeckId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
+  const [exportingDeckId, setExportingDeckId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchInput, setSearchInput] = useState("");
@@ -215,6 +219,27 @@ export default function DashboardPage() {
       toast.error(err instanceof Error ? err.message : t("common.somethingWentWrong"));
     } finally {
       setDuplicatingDeckId(null);
+    }
+  }
+
+  async function handleExportDeck(deckId: string, fallbackTitle: string) {
+    if (exportingDeckId) return;
+    setExportingDeckId(deckId);
+    try {
+      const full = await fetchDeck(deckId, { bypassCache: true });
+      if (!full) {
+        toast.error(t("dashboard.exportDeckFailed"));
+        return;
+      }
+      const titleForFile = (full.title || fallbackTitle).trim() || t("dashboard.untitledDeck");
+      const base = sanitizeDeckExportBasename(titleForFile);
+      const content = buildPStudyTxtFileContents(titleForFile, full.items);
+      downloadTextFile(base, content);
+      toast.success(t("dashboard.exportDeckSuccess"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("dashboard.exportDeckFailed"));
+    } finally {
+      setExportingDeckId(null);
     }
   }
 
@@ -694,6 +719,27 @@ export default function DashboardPage() {
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
+                    <details className="relative shrink-0">
+                      <summary className="flex list-none cursor-pointer items-center justify-center rounded-lg border border-stone-300 bg-white px-2 py-1.5 text-sm font-medium text-stone-700 shadow-sm hover:bg-stone-50 marker:content-none [&::-webkit-details-marker]:hidden">
+                        ⋯
+                      </summary>
+                      <div className="absolute right-0 z-20 mt-1 min-w-[11rem] rounded-lg border border-stone-200 bg-white py-1 text-left shadow-lg">
+                        <button
+                          type="button"
+                          className="block w-full px-3 py-2 text-left text-sm text-stone-800 hover:bg-stone-50 disabled:opacity-50"
+                          disabled={exportingDeckId === deck.id}
+                          onClick={(e) => {
+                            const det = e.currentTarget.closest("details") as HTMLDetailsElement | null;
+                            if (det) det.open = false;
+                            void handleExportDeck(deck.id, deck.title);
+                          }}
+                        >
+                          {exportingDeckId === deck.id
+                            ? t("common.loading")
+                            : t("dashboard.exportAsTxt")}
+                        </button>
+                      </div>
+                    </details>
                     <Link
                       href={`/practice/${deck.id}`}
                       className="btn-secondary text-sm"
