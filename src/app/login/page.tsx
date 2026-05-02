@@ -8,12 +8,53 @@ import { useTranslation } from "@/lib/i18n";
 import { useToast } from "@/components/Toast";
 import { Logo } from "@/components/Logo";
 
+function EyeIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+function EyeOffIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M10.7 5.1A10.5 10.5 0 0 1 12 5c6.5 0 10 7 10 7a18.2 18.2 0 0 1-2.2 3.2" />
+      <path d="M6.6 6.6A18.3 18.3 0 0 0 2 12s3.5 7 10 7c1.2 0 2.3-.2 3.3-.5" />
+      <path d="M14.1 14.1A3 3 0 0 1 9.9 9.9" />
+      <path d="M4 4l16 16" />
+    </svg>
+  );
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { t } = useTranslation();
   const toast = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
@@ -21,6 +62,13 @@ export default function LoginPage() {
   const [resetSent, setResetSent] = useState(false);
   const [recoveryMode, setRecoveryMode] = useState(false);
   const [authLinkFailed, setAuthLinkFailed] = useState(false);
+
+  const needsPasswordConfirmation = isSignUp || recoveryMode;
+  const passwordMismatch =
+    needsPasswordConfirmation &&
+    password.length > 0 &&
+    confirmPassword.length > 0 &&
+    password !== confirmPassword;
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
@@ -35,6 +83,8 @@ export default function LoginPage() {
     }
     if (params.get("recovery") === "1") {
       setRecoveryMode(true);
+      setPassword("");
+      setConfirmPassword("");
       window.history.replaceState(null, "", "/login");
       return;
     }
@@ -61,18 +111,30 @@ export default function LoginPage() {
         if (error) throw error;
         setResetSent(true);
       } else if (recoveryMode) {
+        if (passwordMismatch) {
+          setError(t("login.passwordsDoNotMatch"));
+          return;
+        }
         const { error } = await supabase.auth.updateUser({ password });
         if (error) throw error;
         setRecoveryMode(false);
+        setPassword("");
+        setConfirmPassword("");
         toast.success(t("login.passwordUpdated"));
         window.history.replaceState(null, "", "/login");
         router.refresh();
       } else if (isSignUp) {
+        if (passwordMismatch) {
+          setError(t("login.passwordsDoNotMatch"));
+          return;
+        }
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
         setError("");
         toast.success(t("login.confirmEmail"));
         setIsSignUp(false);
+        setPassword("");
+        setConfirmPassword("");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -102,16 +164,60 @@ export default function LoginPage() {
               <label htmlFor="new-password" className="mb-1 block text-sm text-stone-600">
                 {t("login.newPassword")}
               </label>
-              <input
-                id="new-password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-                className="w-full rounded-lg border border-stone-300 px-3 py-2 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-                placeholder="••••••••"
-              />
+              <div className="relative">
+                <input
+                  id="new-password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className="w-full rounded-lg border border-stone-300 px-3 py-2 pr-10 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? t("login.hidePassword") : t("login.showPassword")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-stone-500 hover:text-stone-700 focus:outline-none focus:ring-2 focus:ring-pstudy-primary"
+                >
+                  {showPassword ? <EyeOffIcon className="h-5 w-5" /> : <EyeIcon className="h-5 w-5" />}
+                </button>
+              </div>
+            </div>
+            <div>
+              <label htmlFor="confirm-new-password" className="mb-1 block text-sm text-stone-600">
+                {t("login.confirmPassword")}
+              </label>
+              <div className="relative">
+                <input
+                  id="confirm-new-password"
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className="w-full rounded-lg border border-stone-300 px-3 py-2 pr-10 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((v) => !v)}
+                  aria-label={
+                    showConfirmPassword ? t("login.hidePassword") : t("login.showPassword")
+                  }
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-stone-500 hover:text-stone-700 focus:outline-none focus:ring-2 focus:ring-pstudy-primary"
+                >
+                  {showConfirmPassword ? (
+                    <EyeOffIcon className="h-5 w-5" />
+                  ) : (
+                    <EyeIcon className="h-5 w-5" />
+                  )}
+                </button>
+              </div>
+              {passwordMismatch ? (
+                <p className="mt-1 text-sm text-red-600">{t("login.passwordsDoNotMatch")}</p>
+              ) : null}
             </div>
             {error && <p className="text-sm text-red-600">{error}</p>}
             <button
@@ -192,18 +298,70 @@ export default function LoginPage() {
           {!forgotPassword && (
             <div>
               <label htmlFor="password" className="mb-1 block text-sm text-stone-600">
-                {t("login.password")}
+                {isSignUp ? t("login.newPassword") : t("login.password")}
               </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-                className="w-full rounded-lg border border-stone-300 px-3 py-2 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-                placeholder="••••••••"
-              />
+              <div className="relative">
+                <input
+                  id="password"
+                  type={isSignUp && showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className="w-full rounded-lg border border-stone-300 px-3 py-2 pr-10 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                  placeholder="••••••••"
+                />
+                {isSignUp && (
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? t("login.hidePassword") : t("login.showPassword")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-stone-500 hover:text-stone-700 focus:outline-none focus:ring-2 focus:ring-pstudy-primary"
+                  >
+                    {showPassword ? (
+                      <EyeOffIcon className="h-5 w-5" />
+                    ) : (
+                      <EyeIcon className="h-5 w-5" />
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {isSignUp && !forgotPassword && (
+            <div>
+              <label htmlFor="confirm-password" className="mb-1 block text-sm text-stone-600">
+                {t("login.confirmPassword")}
+              </label>
+              <div className="relative">
+                <input
+                  id="confirm-password"
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className="w-full rounded-lg border border-stone-300 px-3 py-2 pr-10 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((v) => !v)}
+                  aria-label={
+                    showConfirmPassword ? t("login.hidePassword") : t("login.showPassword")
+                  }
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-stone-500 hover:text-stone-700 focus:outline-none focus:ring-2 focus:ring-pstudy-primary"
+                >
+                  {showConfirmPassword ? (
+                    <EyeOffIcon className="h-5 w-5" />
+                  ) : (
+                    <EyeIcon className="h-5 w-5" />
+                  )}
+                </button>
+              </div>
+              {passwordMismatch ? (
+                <p className="mt-1 text-sm text-red-600">{t("login.passwordsDoNotMatch")}</p>
+              ) : null}
             </div>
           )}
           {error && <p className="text-sm text-red-600">{error}</p>}

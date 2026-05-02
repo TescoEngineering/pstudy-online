@@ -1,4 +1,3 @@
-import type { NextRequest } from "next/server";
 import type { PStudyItem } from "@/types/pstudy";
 
 export function generateReviewAccessToken(): string {
@@ -7,7 +6,7 @@ export function generateReviewAccessToken(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export function getPublicAppUrl(request: NextRequest): string {
+export function getPublicAppUrl(request: Request): string {
   const fromEnv = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "");
   if (fromEnv) return fromEnv;
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");

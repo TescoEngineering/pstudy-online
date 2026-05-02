@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getPublicAppUrl } from "@/lib/deck-review";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 function bad(error: string, status = 400) {
@@ -65,7 +66,9 @@ export async function POST(request: Request) {
   }
 
   // Invite via Supabase auth (magic link / confirmation flow).
+  const appUrl = getPublicAppUrl(request);
   const { data: inv, error: invErr } = await admin.auth.admin.inviteUserByEmail(email, {
+    redirectTo: `${appUrl}/auth/callback`,
     data: {
       name,
       use_case_note: useCase,
