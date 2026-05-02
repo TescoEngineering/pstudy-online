@@ -151,7 +151,26 @@ export default function SignupPage() {
                   className="mt-1 h-4 w-4 rounded border-stone-300"
                 />
                 <span className="text-sm text-stone-700">
-                  I understand PSTUDY is in private beta and the product may change.
+                  I understand PSTUDY is in private beta and the product may change. I have read and
+                  accept the{" "}
+                  <Link
+                    href="/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-pstudy-primary underline hover:no-underline"
+                  >
+                    Terms
+                  </Link>{" "}
+                  and{" "}
+                  <Link
+                    href="/privacy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-pstudy-primary underline hover:no-underline"
+                  >
+                    Privacy Policy
+                  </Link>
+                  .
                 </span>
               </label>
 

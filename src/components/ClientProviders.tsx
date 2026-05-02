@@ -2,6 +2,7 @@
 
 import { LanguageProvider } from "@/lib/i18n";
 import { LanguageSelector } from "./LanguageSelector";
+import { SiteFooter } from "./SiteFooter";
 import { ToastProvider } from "./Toast";
 
 function BannerWithLang() {
@@ -23,8 +24,11 @@ export function ClientProviders({
   return (
     <LanguageProvider>
       <ToastProvider>
-        {showDevStrip ? <BannerWithLang /> : null}
-        {children}
+        <div className="flex min-h-screen flex-col">
+          {showDevStrip ? <BannerWithLang /> : null}
+          <div className="flex flex-1 flex-col">{children}</div>
+          <SiteFooter />
+        </div>
       </ToastProvider>
     </LanguageProvider>
   );

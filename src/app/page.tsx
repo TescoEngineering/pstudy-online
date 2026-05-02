@@ -101,43 +101,6 @@ export default function HomePage() {
           <p className="mt-10 text-sm text-stone-600">{t("home.subtitle")}</p>
         </section>
       </main>
-
-      <footer className="border-t border-stone-200 py-8">
-        <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-center gap-x-5 gap-y-2 px-4 text-sm text-stone-600">
-          <Link href="/pricing" className="hover:underline">
-            Pricing
-          </Link>
-          <Link href="/for-schools" className="hover:underline">
-            For Schools
-          </Link>
-          <Link href="#" className="hover:underline">
-            Privacy
-          </Link>
-          <Link href="#" className="hover:underline">
-            GDPR
-          </Link>
-          <Link href="#" className="hover:underline">
-            Contact
-          </Link>
-          <Link href="/help" className="hover:underline">
-            Help
-          </Link>
-          <Link href="#" className="hover:underline">
-            Blog
-          </Link>
-        </div>
-        <div className="mt-4 text-center text-xs text-stone-500">
-          {t("home.footerBrand")} ·{" "}
-          <a
-            href="https://www.pstudy.be"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-pstudy-primary hover:underline"
-          >
-            {t("home.website")}
-          </a>
-        </div>
-      </footer>
     </div>
   );
 }
