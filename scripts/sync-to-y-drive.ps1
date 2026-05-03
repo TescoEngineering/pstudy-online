@@ -30,6 +30,8 @@ Write-Host "  To:   $Dest"
 Write-Host ""
 
 # /MIR = mirror (deletes files on Y that were removed on C — keeps copies identical)
+# /XD  = exclude dirs: node_modules/.next/.vercel — full mirror often fails on Y: (junctions in
+#        node_modules\.bin, huge .next). Restore on Y with: npm install && npm run build
 # /Z   = restartable mode (better for network drives)
 # /MT:8 = multi-threaded copy
 # /R:2 /W:2 = retry twice, 2 sec wait (network hiccups)
@@ -41,6 +43,7 @@ $robocopyArgs = @(
     "/MT:8",
     "/R:2",
     "/W:2",
+    "/XD", "node_modules", ".next", ".vercel",
     "/NFL", "/NDL", "/NP"
 )
 
