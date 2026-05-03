@@ -6,6 +6,7 @@
 
 import { normalizeSpeechLocale } from "@/lib/speech-locale";
 import { normalizeSttAliasKey } from "@/lib/speech-deck-aliases";
+import { browserSttTrace } from "@/lib/speech-diagnostics";
 
 function orderAlternativesForUserAliases(
   alts: string[],
@@ -560,9 +561,8 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
 
   const recognition = new SpeechRecognition();
   recognition.continuous = options.continuous ?? false;
-  // Must stay false while we only consume isFinal in onResult; otherwise continuous mode
-  // yields almost-only interim hypotheses and nothing ever "registers".
-  recognition.interimResults = false;
+  // In Chrome, single-word utterances often appear first as interim; Practice may accept a short interim.
+  recognition.interimResults = true;
   recognition.lang = normalizeSpeechLocale(options.lang || "en");
   const hasVocabulary = (options.vocabulary?.length ?? 0) > 0;
   recognition.maxAlternatives = hasVocabulary ? 5 : 1;
@@ -649,8 +649,25 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
     if (heardDbg) {
       options.onHeardLine?.(heardDbg);
     }
-    if (transcript || heardDbg) {
-      options.onResult(transcript, isFinal);
+    /**
+     * For very short / interim results, `pickBestTranscript` can return "" while the raw
+     * alternative text still contains what the user said. Practice must still receive that text
+     * so the "Heard" debug line and answer field can update on the first attempt.
+     */
+    const effective = (transcript && transcript.trim()) || heardDbg.trim();
+    browserSttTrace("recognition.onresult", {
+      resultIndex: lastIdx,
+      resultsLen: results.length,
+      isFinal,
+      alternatives: alternatives.map((a) => String(a.transcript ?? "").trim()).filter(Boolean),
+      firstNonEmptyAlt: firstNonEmptyAlt || undefined,
+      pickedTranscript: transcript || undefined,
+      heardDbg: heardDbg || undefined,
+      effective: effective || undefined,
+      forwardsOnResult: Boolean(effective),
+    });
+    if (effective) {
+      options.onResult(effective, isFinal);
     }
   };
 
@@ -670,17 +687,26 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
           : event.error === "network"
             ? "The browser’s speech-recognition service was unreachable. This is not the same as a normal website failing to load. Try again in a moment, reload the page, or switch network/VPN/browser if it keeps happening."
             : `Speech recognition error: ${event.error}`;
+    browserSttTrace("recognition.onerror", { error: event.error, message: msg });
     options.onError?.(msg);
   };
 
   let stopped = false;
+  recognition.onstart = () => {
+    if (!stopped) {
+      browserSttTrace("recognition.onstart", { lang: recognition.lang, continuous: recognition.continuous });
+    }
+  };
   recognition.onend = () => {
+    browserSttTrace("recognition.onend", { stopped });
     if (!stopped && options.onEnd) options.onEnd();
   };
 
   try {
     recognition.start();
+    browserSttTrace("recognition.start-called", { lang: recognition.lang });
   } catch (err) {
+    browserSttTrace("recognition.start-threw", { err: String(err) });
     options.onError?.("Failed to start speech recognition.");
     return null;
   }
@@ -707,6 +733,7 @@ interface SpeechRecognitionInstance {
   start(): void;
   stop(): void;
   abort(): void;
+  onstart: (() => void) | null;
   onresult: ((event: unknown) => void) | null;
   onerror: ((event: { error: string }) => void) | null;
   onend: (() => void) | null;

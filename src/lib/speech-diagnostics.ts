@@ -25,3 +25,26 @@ export function speechDiag(phase: string, data: Record<string, unknown>): void {
   if (!isSpeechDiagnosticsEnabled()) return;
   console.info(`[pstudy-speech] ${phase}`, { wallMs: Date.now(), ...data });
 }
+
+/**
+ * Browser Web Speech (`startListening`) — separate from cloud `pstudySpeechDebug`.
+ *
+ * Enable on localhost practice page (DevTools console):
+ *   localStorage.setItem("pstudySttTrace", "1")
+ * Reload, reproduce, watch `[pstudy-stt-trace]` lines.
+ * Disable:
+ *   localStorage.removeItem("pstudySttTrace")
+ */
+export function isBrowserSttTraceEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem("pstudySttTrace") === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function browserSttTrace(phase: string, data: Record<string, unknown>): void {
+  if (!isBrowserSttTraceEnabled()) return;
+  console.info(`[pstudy-stt-trace] ${phase}`, { wallMs: Date.now(), ...data });
+}

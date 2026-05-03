@@ -28,7 +28,13 @@ import {
 } from "@/lib/speech-deck-aliases";
 import { fetchDeckSttAliases, upsertDeckSttAliases } from "@/lib/supabase/deck-stt-aliases";
 import { startCloudListening } from "@/lib/speech-cloud";
+import { browserSttTrace } from "@/lib/speech-diagnostics";
 import { SpeechLanguageSelectOptions } from "@/components/SpeechLanguageSelectOptions";
+import {
+  practiceVoiceLangStorageKey,
+  resolvePracticeVoiceLangs,
+  savePracticeVoiceLangs,
+} from "@/lib/practice-voice-langs";
 import {
   parseFlashcardRevealSegments,
   splitKeywordTags,
@@ -171,23 +177,27 @@ export default function PracticePage() {
   const [originalTotal, setOriginalTotal] = useState(0);
   const [listenMode, setListenMode] = useState(false);
   const [speakMode, setSpeakMode] = useState(false);
-  const [speechLang, setSpeechLang] = useState(() => {
-    if (typeof window === "undefined") return "en";
-    try {
-      const s = localStorage.getItem("pstudy-speech-lang");
-      return s && s.trim() ? s.trim() : "en";
-    } catch {
-      return "en";
-    }
-  });
+  /** TTS / “Listen” read-aloud language (per deck + localStorage). */
+  const [listenLang, setListenLang] = useState("en");
+  /** STT / “Speak” microphone language (per deck + localStorage). */
+  const [speakLang, setSpeakLang] = useState("en");
   const [vocabularyBias, setVocabularyBias] = useState(false);
   const [showSttHeardDebug, setShowSttHeardDebug] = useState(false);
+  /** Last line from `onHeardLine` (Chrome cumulative / raw). */
+  const [lastHeardChrome, setLastHeardChrome] = useState("");
+  /** Last line passed through Practice cleanup (echo strip, collapse); same pipeline as the answer field. */
   const [lastHeardRaw, setLastHeardRaw] = useState("");
   /** Stable STT→UI bridge so async chunk callbacks always hit the latest setLastHeardRaw. */
   const heardLineDispatch = useRef<(line: string) => void>(() => {});
   heardLineDispatch.current = (line: string) => {
     const t = line.trim();
-    if (t) setLastHeardRaw(t);
+    if (!t) return;
+    const parts = t.split(/\s+/).filter(Boolean);
+    const collapsed =
+      parts.length >= 2 && parts.every((p) => p.toLowerCase() === parts[0]!.toLowerCase())
+        ? parts[0]!
+        : t;
+    setLastHeardRaw(collapsed);
   };
   const onHeardLineStable = useCallback((line: string) => {
     heardLineDispatch.current(line);
@@ -198,6 +208,13 @@ export default function PracticePage() {
   const [flashcardSttEngine, setFlashcardSttEngine] = useState<"google" | "browser">(() => {
     if (typeof window === "undefined") return "browser";
     const s = localStorage.getItem("pstudy-flashcard-stt");
+    if (s === "google") return "google";
+    return "browser";
+  });
+  /** Straight practice: Google Cloud vs browser Web Speech — independent of “Consider only deck answers”. */
+  const [straightSttEngine, setStraightSttEngine] = useState<"google" | "browser">(() => {
+    if (typeof window === "undefined") return "browser";
+    const s = localStorage.getItem("pstudy-straight-stt");
     if (s === "google") return "google";
     return "browser";
   });
@@ -266,9 +283,12 @@ export default function PracticePage() {
   const keywordClozeSpeakAccumRef = useRef("");
   /**
    * Repeat-mistakes round: on a **correct** answer we show the result pane first; `next()` removes
-   * this card id from the list (wrong answers still requeue the item inside checkAnswer).
+   * this card id from the list. On **wrong**, `next()` requeues that id to the end — deferred from
+   * `checkAnswer` so `current` does not change before Listen-mode TTS runs (otherwise the
+   * `useEffect([current])` cleanup calls `stopSpeaking()` and cancels "Incorrect; the correct answer…").
    */
   const repeatMistakesRemoveCorrectIdRef = useRef<string | null>(null);
+  const repeatMistakesRequeueWrongIdRef = useRef<string | null>(null);
 
   const bumpListenGeneration = useCallback(() => {
     listenSeqRef.current++;
@@ -370,13 +390,13 @@ export default function PracticePage() {
 
   /**
    * Seed “What STT heard” only while the mappings panel is open.
-   * When the panel is closed, `lastHeardRaw` updates on every STT tick during Speak mode — syncing
+   * When the panel is closed, `lastHeardChrome` updates on every STT tick during Speak mode — syncing
    * here used to hammer setState + localStorage saves and could freeze or kill the tab after dozens
    * of answers. Use “Add row from last Heard” during practice, or open the panel to auto-fill once.
    */
   useEffect(() => {
     if (!speechMappingPanelOpen) return;
-    const heard = lastHeardRaw.trim();
+    const heard = lastHeardChrome.trim();
     if (!heard) return;
     setSttAliasRows((prev) => {
       const emptyIdx = prev.findIndex((r) => !r.from.trim());
@@ -390,7 +410,7 @@ export default function PracticePage() {
       }
       return prev;
     });
-  }, [lastHeardRaw, speechMappingPanelOpen]);
+  }, [lastHeardChrome, speechMappingPanelOpen]);
 
   useEffect(() => {
     if (!speechMappingPanelOpen) return;
@@ -405,12 +425,13 @@ export default function PracticePage() {
   }, [keywordClozeMode]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("pstudy-speech-lang", speechLang);
-    } catch {
-      /* ignore */
-    }
-  }, [speechLang]);
+    if (!deck) return;
+    const key = practiceVoiceLangStorageKey(deck.lineageId, deck.id);
+    const { listen, speak } = resolvePracticeVoiceLangs(deck.contentLanguage, key);
+    setListenLang(listen);
+    setSpeakLang(speak);
+    savePracticeVoiceLangs(key, listen, speak, deck.contentLanguage);
+  }, [deck?.id, deck?.lineageId, deck?.contentLanguage]);
 
   useEffect(() => {
     try {
@@ -461,15 +482,30 @@ export default function PracticePage() {
 
   useEffect(() => {
     void (async () => {
+      const clearGooglePreference = () => {
+        setStraightSttEngine((prev) => {
+          if (prev !== "google") return prev;
+          localStorage.setItem("pstudy-straight-stt", "browser");
+          return "browser";
+        });
+        setFlashcardSttEngine((prev) => {
+          if (prev !== "google") return prev;
+          localStorage.setItem("pstudy-flashcard-stt", "browser");
+          return "browser";
+        });
+      };
       try {
         const r = await fetch("/api/speech-to-text/status");
         const d = (await r.json()) as {
           available?: boolean;
           google?: boolean;
         };
-        setSttGoogle(!!d.google);
+        const ok = !!d.google;
+        setSttGoogle(ok);
+        if (!ok) clearGooglePreference();
       } catch {
         setSttGoogle(false);
+        clearGooglePreference();
       }
     })();
   }, []);
@@ -633,8 +669,10 @@ export default function PracticePage() {
     }
   }, [flashcardBrowseOnly, mode, bumpListenGeneration]);
 
-  useEffect(() => {
+  /** Clear before paint + before other effects start the mic — avoids racing the first STT line on a new card. */
+  useLayoutEffect(() => {
     setLastHeardRaw("");
+    setLastHeardChrome("");
   }, [current?.id]);
 
   // Stop listening when result shown, speak off, or flashcard revealed
@@ -694,10 +732,9 @@ export default function PracticePage() {
       deckAnswerVocabulary.length > 0 ? [...deckAnswerVocabulary] : [];
     /**
      * Flashcard + speak: freeform — no deck phrase hints.
-     * Straight + speak: pass deck phrases to STT only when **Consider only deck answers** is on
-     * (Google phrase hints + `pickBestTranscript` fuzzy snap). Otherwise use the raw transcript so
-     * answers are not forced to match the card text unless the user opted in. Keyword cloze with
-     * keywords (straight or flashcard practice) builds the answer in `handleResult` and uses
+     * Straight + speak: pass deck phrases only when **Consider only deck answers** is on
+     * (Google phrase hints + `pickBestTranscript` fuzzy snap). Which backend runs (Google vs browser)
+     * is chosen separately via **Straight practice speech**. Keyword cloze with tags uses
      * `vocabulary: undefined` here.
      */
     const vocabulary = afterDelayFlashcard
@@ -715,12 +752,35 @@ export default function PracticePage() {
         (modeRef.current === "flashcard" && !flashcardBrowseOnlyRef.current));
 
     const handleResult = (transcript: string, isFinal: boolean) => {
-      if (!isFinal) return;
       if (seq !== listenSeqRef.current) return;
 
-      if (!transcript.trim()) return;
+      if (!transcript.trim()) {
+        browserSttTrace("practice.handleResult", { phase: "skip-empty-transcript", seq, isFinal });
+        return;
+      }
+
+      browserSttTrace("practice.handleResult", {
+        phase: "enter",
+        seq,
+        isFinal,
+        raw: transcript.trim().slice(0, 120),
+        answerFieldLen: answerRef.current.trim().length,
+      });
 
       let newTranscript = transcript.trim();
+      /**
+       * Chrome sometimes “grows” a transcript across separate short utterances in continuous mode,
+       * so the second attempt can come back as "me me" even if the user meant a single word each time.
+       * If the transcript is purely the same token repeated, collapse it to one token for PSTUDY's
+       * single-word decks (solfège, note names, etc.).
+       */
+      const words = newTranscript.split(/\s+/).filter(Boolean);
+      if (words.length >= 2) {
+        const first = words[0]!.toLowerCase();
+        const allSame = words.every((w) => w.toLowerCase() === first);
+        if (allSame) newTranscript = words[0]!;
+      }
+      const beforeEcho = newTranscript;
       const q = questionTextRef.current.trim();
       /**
        * Strip when **Listen** played the question via TTS before the mic, and the transcript
@@ -741,7 +801,63 @@ export default function PracticePage() {
           }
         }
       }
-      if (!newTranscript) return;
+      /**
+       * If the TTS line is exactly (or starts with) the same single short word the user said, the
+       * echo strip above can erase the whole utterance — common on a **new card** when the listened
+       * prompt is literally the answer word. Keep the short token; real echo+answer cases are longer.
+       */
+      if (!newTranscript && beforeEcho.trim()) {
+        const b = beforeEcho.trim();
+        if (!b.includes(" ") && b.length <= 8) {
+          newTranscript = b;
+        }
+      }
+      if (!newTranscript) {
+        browserSttTrace("practice.handleResult", {
+          phase: "skip-after-echo",
+          seq,
+          isFinal,
+          beforeEcho: beforeEcho.slice(0, 120),
+          questionLen: q.length,
+          listenMode,
+          vocabularyBias,
+        });
+        return;
+      }
+
+      /**
+       * Chrome/Web Speech can emit interim hypotheses for very short utterances (single words).
+       * We generally prefer final results, but for one-word answers we accept a short interim
+       * transcript so the first attempt appears immediately.
+       * Do **not** update the processed “Heard” box until we pass these gates — otherwise the UI
+       * shows a line we never apply to the answer (e.g. long interim while the field stays on old fragments).
+       */
+      if (!isFinal) {
+        const t = newTranscript;
+        const cur = answerRef.current.trim();
+        /**
+         * Interims must not overwrite a *different* typed answer, but Chrome often re-sends the same
+         * token ("it", "it it" → "it") while the field already holds that answer — blocking those
+         * was noisy and could stall perceived progress; only skip when the interim disagrees.
+         */
+        if (cur !== "" && normalizeAnswer(cur) !== normalizeAnswer(t)) {
+          browserSttTrace("practice.handleResult", {
+            phase: "skip-interim-answer-differs",
+            seq,
+            processed: t.slice(0, 120),
+            answerPreview: cur.slice(0, 60),
+          });
+          return;
+        }
+        if (t.length > 8 || t.includes(" ")) {
+          browserSttTrace("practice.handleResult", {
+            phase: "skip-interim-too-long-or-spaced",
+            seq,
+            processed: t.slice(0, 120),
+          });
+          return;
+        }
+      }
 
       if (keywordClozeAnswerWithTags && currentItemRef.current) {
         const card = currentItemRef.current;
@@ -753,6 +869,7 @@ export default function PracticePage() {
         if (tags.length && expected) {
           const piece = newTranscript.trim();
           if (!piece) return;
+          onHeardLineStable(piece);
 
           const fieldNow = answerRef.current.trim();
           const hasScaffold = fieldNow.includes(KEYWORD_CLOZE_GAP_MARKER);
@@ -802,6 +919,7 @@ export default function PracticePage() {
           deckSttAliasesRecord
         );
         if (resolved === null) return;
+        onHeardLineStable(resolved);
         setAnswer(resolved);
         return;
       }
@@ -817,41 +935,115 @@ export default function PracticePage() {
           deckSttAliasesRecord
         );
       }
+      /**
+       * STT → answer merge (keep order in mind when debugging “heard vs box”):
+       * 1) Echo strip / collapse  2) Interim gate  3) Cloze / deck-only resolve  4) Aliases
+       * 5) `onHeardLineStable` (debug “used for answer”)  6) Merge below.
+       * If the new line **starts with** the field (case-insensitive), treat it as the same cumulative
+       * hypothesis and replace with the full string — e.g. interim `ATT` then final `attendre`, not
+       * `ATT attendre`. Do **not** use `split(currentAnswer)` on substrings inside longer words.
+       */
+      onHeardLineStable(newTranscript);
       const currentAnswer = answerRef.current.trim();
       if (currentAnswer === "" || newTranscript === currentAnswer) {
         setAnswer(newTranscript);
-      } else if (newTranscript.startsWith(currentAnswer) && newTranscript.length > currentAnswer.length) {
-        const occurrences = currentAnswer ? newTranscript.split(currentAnswer).length - 1 : 0;
-        if (occurrences <= 1) {
-          setAnswer(newTranscript);
+      } else if (
+        newTranscript.length > currentAnswer.length &&
+        newTranscript.toLowerCase().startsWith(currentAnswer.toLowerCase())
+      ) {
+        setAnswer(newTranscript);
+      } else {
+        /**
+         * Long final (e.g. "I take a drink") after short spaced junk ("i nk") must replace, not append,
+         * or the field disagrees with Chrome heard / processed heard.
+         */
+        const newWordCount = newTranscript.trim().split(/\s+/).filter(Boolean).length;
+        const shortSpacedJunk =
+          currentAnswer.includes(" ") &&
+          currentAnswer.length <= 8 &&
+          currentAnswer.replace(/\s+/g, "").length <= 6;
+        if (
+          isFinal &&
+          !vocabularyBias &&
+          !keywordClozeAnswerWithTags &&
+          !afterDelayFlashcard &&
+          newWordCount >= 4 &&
+          shortSpacedJunk
+        ) {
+          setAnswer(newTranscript.trim());
         } else {
-          const lastIdx = newTranscript.lastIndexOf(currentAnswer);
-          if (lastIdx !== -1) {
-            const newPart = newTranscript.slice(lastIdx + currentAnswer.length).trim();
-            if (newPart) {
-              setAnswer((currentAnswer + " " + newPart).trim());
-            }
+          /**
+           * Freeform browser STT often emits unrelated one-letter fragments then a short token
+           * ("i" + "nk" from mis-hearing). Blind `prev + " " + new` produces nonsense vs the raw Chrome line.
+           * If the field is a single ASCII letter and the new hypothesis is one token, replace instead of append.
+           */
+          const oneAsciiLetter = /^[A-Za-z]$/.test(currentAnswer);
+          const newOneToken = !newTranscript.includes(" ") && newTranscript.trim().length > 0;
+          if (
+            !vocabularyBias &&
+            !keywordClozeAnswerWithTags &&
+            !afterDelayFlashcard &&
+            oneAsciiLetter &&
+            newOneToken
+          ) {
+            setAnswer(newTranscript);
+          } else {
+            setAnswer((prev) => (prev ? `${prev} ${newTranscript}` : newTranscript).trim());
           }
         }
-      } else {
-        setAnswer((prev) => (prev ? `${prev} ${newTranscript}` : newTranscript).trim());
       }
     };
 
     const handleError = (msg: string) => {
       if (seq !== listenSeqRef.current) return;
-      toast.error(msg);
+      /**
+       * Chrome Web Speech commonly emits "No speech detected." after a few seconds of silence,
+       * ending the session. If we just stop, the next short word is often missed and only appears
+       * when the user speaks again. Auto-restart quietly so the first word after a pause is captured.
+       */
+      const isNoSpeech =
+        typeof msg === "string" && msg.toLowerCase().includes("no speech detected");
+      browserSttTrace("practice.handleError", { seq, msg: String(msg).slice(0, 200), isNoSpeech });
+      if (!isNoSpeech) {
+        toast.error(msg);
+      }
       setIsListening(false);
       stopListeningRef.current = null;
+
+      if (isNoSpeech) {
+        if (listenRestartTimerRef.current) {
+          clearTimeout(listenRestartTimerRef.current);
+          listenRestartTimerRef.current = null;
+        }
+        browserSttTrace("practice.scheduleRestart", { kind: "no-speech", seq, delayMs: 250 });
+        listenRestartTimerRef.current = setTimeout(() => {
+          listenRestartTimerRef.current = null;
+          if (seq !== listenSeqRef.current) return;
+          if (answerCheckPendingRef.current) return;
+          if (speechMappingPanelOpenRef.current) return;
+          if (
+            !speakModeRef.current ||
+            showResultRef.current ||
+            (modeRef.current !== "straight" && modeRef.current !== "flashcard")
+          ) {
+            return;
+          }
+          browserSttTrace("practice.runRestart", { kind: "no-speech", seq });
+          startSpeakListening();
+        }, 250);
+      }
     };
 
     const onHeardGuarded = (line: string) => {
       if (seq !== listenSeqRef.current) return;
-      onHeardLineStable(line);
+      const t = line.trim();
+      if (t) setLastHeardChrome(t);
+      browserSttTrace("practice.onHeardLine", { seq, line: line.trim().slice(0, 160) });
     };
 
     const handleEnd = () => {
       if (seq !== listenSeqRef.current) return;
+      browserSttTrace("practice.handleEnd", { seq });
       if (answerCheckPendingRef.current) return;
       if (speechMappingPanelOpenRef.current) return;
       if (
@@ -865,6 +1057,7 @@ export default function PracticePage() {
         clearTimeout(listenRestartTimerRef.current);
         listenRestartTimerRef.current = null;
       }
+      browserSttTrace("practice.scheduleRestart", { kind: "onend", seq, delayMs: 380 });
       listenRestartTimerRef.current = setTimeout(() => {
         listenRestartTimerRef.current = null;
         if (seq !== listenSeqRef.current) return;
@@ -877,20 +1070,20 @@ export default function PracticePage() {
         ) {
           return;
         }
+        browserSttTrace("practice.runRestart", { kind: "onend", seq });
         startSpeakListening();
       }, 380);
     };
 
     let stop: (() => void) | null = null;
     const vocabularyOnly = vocabularyBias && !afterDelayFlashcard;
+    const useStraightGoogle =
+      !afterDelayFlashcard && straightSttEngine === "google";
     const useFlashcardGoogle =
       afterDelayFlashcard && flashcardSttEngine === "google";
 
     const tryCloudGoogle =
-      (vocabularyBias &&
-        !afterDelayFlashcard &&
-        !!vocabulary?.length &&
-        !keywordClozeAnswerWithTags) ||
+      (useStraightGoogle && !keywordClozeAnswerWithTags) ||
       (afterDelayFlashcard && useFlashcardGoogle);
 
     if (tryCloudGoogle) {
@@ -905,14 +1098,17 @@ export default function PracticePage() {
 
         if (d.google) {
           stop = startCloudListening({
-            lang: speechLang,
+            lang: speakLang,
+            // Straight: phrase hints + server aliases only when “Consider only deck answers” is on.
             // Flashcard: omit phrases/aliases so Google returns open transcription (no deck forcing).
             vocabulary:
               afterDelayFlashcard || keywordClozeAnswerWithTags ? undefined : vocabulary,
             sttAliases:
               afterDelayFlashcard || keywordClozeAnswerWithTags
                 ? undefined
-                : deckSttAliasesRecord,
+                : vocabularyBias && Object.keys(deckSttAliasesRecord).length > 0
+                  ? deckSttAliasesRecord
+                  : undefined,
             onResult: handleResult,
             onHeardLine: onHeardGuarded,
             onError: handleError,
@@ -940,7 +1136,7 @@ export default function PracticePage() {
         return;
       }
       stop = startListening({
-        lang: speechLang,
+        lang: speakLang,
         vocabulary: keywordClozeAnswerWithTags ? undefined : vocabulary,
         vocabularyOnly: keywordClozeAnswerWithTags ? false : vocabularyOnly,
         sttAliases:
@@ -973,7 +1169,7 @@ export default function PracticePage() {
     mode,
     speakMode,
     showResult,
-    speechLang,
+    speakLang,
     vocabularyBias,
     promptMode,
     current,
@@ -983,6 +1179,7 @@ export default function PracticePage() {
     onHeardLineStable,
     deckSttAliasesRecord,
     flashcardSttEngine,
+    straightSttEngine,
     bumpListenGeneration,
     deckAnswerVocabulary,
     flashcardBrowseOnly,
@@ -1010,7 +1207,7 @@ export default function PracticePage() {
           ttsAfterListenTimerRef.current = null;
           startSpeakListening();
         }, 300);
-      }, speechLang);
+      }, listenLang);
     } else {
       startSpeakListening();
     }
@@ -1023,7 +1220,7 @@ export default function PracticePage() {
     showResult,
     flashcardRevealed,
     startSpeakListening,
-    speechLang,
+    listenLang,
     speechMappingPanelOpen,
   ]);
 
@@ -1065,6 +1262,7 @@ export default function PracticePage() {
         normalizeAnswer(userAnswer) === normalizeAnswer(expected);
       if (ok) {
         setCorrect((c) => c + 1);
+        repeatMistakesRequeueWrongIdRef.current = null;
         if (repeatMistakesMode) {
           repeatMistakesRemoveCorrectIdRef.current = current.id;
           /** Fixing a prior miss: +1 correct and −1 wrong so ✓+✗ total stays the same. */
@@ -1075,32 +1273,27 @@ export default function PracticePage() {
           setWrong((w) => w + 1);
           setWrongItems((prev) => [...prev, current]);
         } else {
-          /** Still wrong in repeat round: show incorrect feedback but do not add to the ✗ tally again. */
-          setList((prev) => {
-            const item = prev[displayIndex];
-            if (item === undefined) return prev;
-            const rest = prev.filter((_, i) => i !== displayIndex);
-            return [...rest, item];
-          });
-          setIndex(0);
+          /** Still wrong in repeat round: requeue after `next()` so `current` stays stable for TTS. */
+          repeatMistakesRequeueWrongIdRef.current = current.id;
         }
       }
 
       setResultCardItem(current);
       setShowResult(true);
 
-      // When Listen is on, speak the evaluation feedback
+      // When Listen is on, speak the evaluation feedback. Use **Speak** language so the answer
+      // side is pronounced like the user’s practice language (e.g. Dutch prompt, French answer).
       if (listenMode && expectedStr) {
         if (ok) {
-          speak(`Correct: ${expectedStr}`, speechLang);
+          speak(`Correct: ${expectedStr}`, speakLang);
         } else {
-          speak(`Incorrect; the correct answer was ${expectedStr}`, speechLang);
+          speak(`Incorrect; the correct answer was ${expectedStr}`, speakLang);
         }
       }
 
       answerCheckPendingRef.current = false;
     },
-    [current, displayIndex, promptMode, repeatMistakesMode, list.length, correct, wrong, originalTotal, total, id, router, listenMode, speechLang]
+    [current, promptMode, repeatMistakesMode, list.length, correct, wrong, originalTotal, total, id, router, listenMode, speakLang]
   );
 
 
@@ -1121,8 +1314,11 @@ export default function PracticePage() {
 
     const removeCorrectId =
       repeatMistakesMode ? repeatMistakesRemoveCorrectIdRef.current : null;
+    const requeueWrongId =
+      repeatMistakesMode ? repeatMistakesRequeueWrongIdRef.current : null;
     if (repeatMistakesMode) {
       repeatMistakesRemoveCorrectIdRef.current = null;
+      repeatMistakesRequeueWrongIdRef.current = null;
     }
 
     setAnswer("");
@@ -1146,6 +1342,18 @@ export default function PracticePage() {
             }, 0);
           }
           return nextList;
+        });
+        setIndex(0);
+        return;
+      }
+      if (requeueWrongId) {
+        setList((prev) => {
+          const idx = prev.findIndex((it) => it.id === requeueWrongId);
+          if (idx < 0) return prev;
+          const item = prev[idx];
+          if (item === undefined) return prev;
+          const rest = prev.filter((_, i) => i !== idx);
+          return [...rest, item];
         });
         setIndex(0);
       }
@@ -1184,6 +1392,7 @@ export default function PracticePage() {
   const prev = useCallback(() => {
     if (nextInFlightRef.current) return;
     nextInFlightRef.current = true;
+    repeatMistakesRequeueWrongIdRef.current = null;
     bumpListenGeneration();
     if (ttsAfterListenTimerRef.current) {
       clearTimeout(ttsAfterListenTimerRef.current);
@@ -1236,14 +1445,14 @@ export default function PracticePage() {
         ttsAfterListenTimerRef.current = null;
         startSpeakListening();
       }, 300);
-    }, speechLang);
+    }, listenLang);
   }
 
   function handleListenAnswer() {
     if (!displayCard) return;
     const text =
       promptMode === "description" ? displayCard.description : displayCard.explanation;
-    if (text?.trim()) speak(text.trim(), speechLang);
+    if (text?.trim()) speak(text.trim(), listenLang);
   }
 
   const handleEnterToCheck = useCallback(() => {
@@ -1452,11 +1661,35 @@ export default function PracticePage() {
                   <option value="flashcard">{t("practice.flashcard")}</option>
                 </select>
               </label>
+              <label className="flex items-center gap-2">
+                <span className="text-sm text-stone-600">{t("practice.order")}</span>
+                <select
+                  value={order}
+                  onChange={(e) => setOrder(e.target.value as "normal" | "random")}
+                  className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                >
+                  <option value="normal">{t("practice.normalOrder")}</option>
+                  <option value="random">{t("practice.randomOrder")}</option>
+                </select>
+              </label>
               {mode === "flashcard" ? (
                 <>
                   <fieldset className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                     <legend className="sr-only">{t("practice.flashcardWhichCards")}</legend>
-                    <span className="text-sm text-stone-600">{t("practice.flashcardWhichCards")}</span>
+                    <span className="inline-flex flex-wrap items-center gap-1.5 text-sm text-stone-600">
+                      {t("practice.flashcardWhichCards")}
+                      <span
+                        className="inline-flex"
+                        onClick={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
+                      >
+                        <ContextHint>
+                          <p className="m-0 text-sm text-stone-700">
+                            {t("practice.flashcardFormatHint")}
+                          </p>
+                        </ContextHint>
+                      </span>
+                    </span>
                     <label className="flex cursor-pointer items-center gap-2">
                       <input
                         type="radio"
@@ -1492,43 +1725,32 @@ export default function PracticePage() {
                       </span>
                     ) : null}
                   </fieldset>
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={flashcardBrowseOnly}
-                      onChange={(e) => setFlashcardBrowseOnly(e.target.checked)}
-                      className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
-                    />
-                    <span className="text-sm text-stone-700">
-                      {t("practice.flashcardBrowseOnly")}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={flashcardBrowseOnly}
+                        onChange={(e) => setFlashcardBrowseOnly(e.target.checked)}
+                        className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                      />
+                      <span className="text-sm text-stone-700">
+                        {t("practice.flashcardBrowseOnly")}
+                      </span>
+                    </label>
+                    <span
+                      className="inline-flex"
+                      onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
+                      <ContextHint>
+                        <p className="m-0 text-sm text-stone-700">
+                          {t("practice.flashcardBrowseHint")}
+                        </p>
+                      </ContextHint>
                     </span>
-                  </label>
-                  <div
-                    className="w-full max-w-xl sm:max-w-xl"
-                    onClick={(e) => e.stopPropagation()}
-                    onPointerDown={(e) => e.stopPropagation()}
-                  >
-                    <ContextHint>
-                      <p className="m-0 text-sm text-stone-700">
-                        {flashcardBrowseOnly
-                          ? t("practice.flashcardBrowseHint")
-                          : t("practice.flashcardFormatHint")}
-                      </p>
-                    </ContextHint>
                   </div>
                 </>
               ) : null}
-              <label className="flex items-center gap-2">
-                <span className="text-sm text-stone-600">{t("practice.order")}</span>
-                <select
-                  value={order}
-                  onChange={(e) => setOrder(e.target.value as "normal" | "random")}
-                  className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-                >
-                  <option value="normal">{t("practice.normalOrder")}</option>
-                  <option value="random">{t("practice.randomOrder")}</option>
-                </select>
-              </label>
               {(mode === "straight" || mode === "flashcard") && (
                 <div className="flex w-full min-w-[min(100%,20rem)] flex-col gap-1">
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -1570,16 +1792,37 @@ export default function PracticePage() {
           {(mode === "straight" || mode === "flashcard") &&
             (isSpeechRecognitionSupported() || cloudSttAvailable) &&
             !(mode === "flashcard" && flashcardBrowseOnly) && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={speakMode}
-                onChange={(e) => setSpeakMode(e.target.checked)}
-                className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
-              />
-              <span className="text-sm text-stone-600">{t("practice.speakMode")}</span>
-            </label>
-          )}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={speakMode}
+                    onChange={(e) => setSpeakMode(e.target.checked)}
+                    className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                  />
+                  <span className="text-sm text-stone-600">{t("practice.speakMode")}</span>
+                </label>
+                {!cloudSttAvailable &&
+                  (mode === "straight" || (mode === "flashcard" && !flashcardBrowseOnly)) && (
+                    <span
+                      className="inline-flex"
+                      onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
+                      <ContextHint>
+                        <div className="space-y-2">
+                          <p className="m-0 text-sm text-stone-700">
+                            {t("practice.sttBrowserOnlyInline")}
+                          </p>
+                          <p className="m-0 text-sm text-stone-700">
+                            {t("practice.sttBrowserOnlyHint")}
+                          </p>
+                        </div>
+                      </ContextHint>
+                    </span>
+                  )}
+              </div>
+            )}
           {mode === "multiple-choice" && (
             <div className="w-full" onClick={(e) => e.stopPropagation()}>
               <ContextHint>
@@ -1598,7 +1841,39 @@ export default function PracticePage() {
               <span className="text-sm text-stone-600">{t("practice.considerOnlyDeckAnswers")}</span>
             </label>
           )}
-          {mode === "flashcard" && speakMode && !flashcardBrowseOnly && (
+          {mode === "straight" && speakMode && cloudSttAvailable && (
+            <div className="flex w-full flex-wrap items-center gap-2">
+              <span className="inline-flex flex-wrap items-center gap-1.5 text-sm text-stone-600">
+                {t("practice.straightSttEngine")}
+                <span
+                  className="inline-flex"
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <ContextHint>
+                    <div className="space-y-2">
+                      <p className="m-0 text-sm text-stone-700">
+                        {t("practice.straightSttEngineHint")}
+                      </p>
+                    </div>
+                  </ContextHint>
+                </span>
+              </span>
+              <select
+                value={straightSttEngine}
+                onChange={(e) => {
+                  const v = e.target.value as "google" | "browser";
+                  setStraightSttEngine(v);
+                  localStorage.setItem("pstudy-straight-stt", v);
+                }}
+                className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+              >
+                <option value="google">{t("practice.straightSttGoogle")}</option>
+                <option value="browser">{t("practice.straightSttBrowser")}</option>
+              </select>
+            </div>
+          )}
+          {mode === "flashcard" && speakMode && !flashcardBrowseOnly && cloudSttAvailable && (
             <label className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-stone-600">{t("practice.flashcardSttEngine")}</span>
               <select
@@ -1613,11 +1888,6 @@ export default function PracticePage() {
                 <option value="google">{t("practice.flashcardSttGoogle")}</option>
                 <option value="browser">{t("practice.flashcardSttBrowser")}</option>
               </select>
-              {!cloudSttAvailable && flashcardSttEngine === "google" ? (
-                <span className="w-full text-xs text-amber-700">
-                  {t("practice.flashcardSttGoogleUnavailable")}
-                </span>
-              ) : null}
             </label>
           )}
           {(mode === "straight" || mode === "flashcard") &&
@@ -1634,16 +1904,50 @@ export default function PracticePage() {
               <span className="text-sm text-stone-500">{t("practice.showSttHeardDebug")}</span>
             </label>
           )}
-          <label className="flex items-center gap-2">
-            <span className="text-sm text-stone-600">{t("practice.speechLanguage")}:</span>
-            <select
-              value={speechLang}
-              onChange={(e) => setSpeechLang(e.target.value)}
-              className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-            >
-              <SpeechLanguageSelectOptions />
-            </select>
-          </label>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <label className="flex items-center gap-2">
+              <span className="text-sm text-stone-600">{t("practice.listenLanguage")}:</span>
+              <select
+                value={listenLang}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setListenLang(v);
+                  if (deck) {
+                    savePracticeVoiceLangs(
+                      practiceVoiceLangStorageKey(deck.lineageId, deck.id),
+                      v,
+                      speakLang,
+                      deck.contentLanguage
+                    );
+                  }
+                }}
+                className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+              >
+                <SpeechLanguageSelectOptions />
+              </select>
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="text-sm text-stone-600">{t("practice.speakLanguage")}:</span>
+              <select
+                value={speakLang}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSpeakLang(v);
+                  if (deck) {
+                    savePracticeVoiceLangs(
+                      practiceVoiceLangStorageKey(deck.lineageId, deck.id),
+                      listenLang,
+                      v,
+                      deck.contentLanguage
+                    );
+                  }
+                }}
+                className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+              >
+                <SpeechLanguageSelectOptions />
+              </select>
+            </label>
+          </div>
           {mode === "straight" && speakMode && (
             <details
               className="mt-3 w-full rounded border border-stone-200 bg-stone-50/90 px-3 py-2"
@@ -1728,13 +2032,13 @@ export default function PracticePage() {
                   >
                     {t("practice.deckSttAliasesAdd")}
                   </button>
-                  {lastHeardRaw.trim() ? (
+                  {(lastHeardChrome.trim() || lastHeardRaw.trim()) ? (
                     <button
                       type="button"
                       onClick={() =>
                         setSttAliasRows((rows) => [
                           ...rows,
-                          { from: lastHeardRaw.trim(), to: "" },
+                          { from: (lastHeardChrome.trim() || lastHeardRaw.trim()), to: "" },
                         ])
                       }
                       className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-stone-800 hover:bg-amber-100"
@@ -1918,17 +2222,48 @@ export default function PracticePage() {
                 </form>
                 {speakMode &&
                   (showSttHeardDebug || vocabularyBias || speechMappingPanelOpen) && (
-                  <div className="mt-2">
-                    <label className="mb-1 block text-xs font-medium text-stone-500">
-                      {t("practice.sttHeardRawLabel")}
-                    </label>
-                    <textarea
-                      readOnly
-                      rows={2}
-                      value={lastHeardRaw}
-                      placeholder="—"
-                      className="w-full resize-y rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 font-mono text-sm text-stone-800 focus:outline-none"
-                    />
+                  <div className="mt-2 space-y-2">
+                    {showSttHeardDebug ? (
+                      <>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-stone-500">
+                            {t("practice.sttHeardChromeLabel")}
+                          </label>
+                          <textarea
+                            readOnly
+                            rows={2}
+                            value={lastHeardChrome}
+                            placeholder="—"
+                            className="w-full resize-y rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 font-mono text-sm text-stone-800 focus:outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-stone-500">
+                            {t("practice.sttHeardProcessedLabel")}
+                          </label>
+                          <textarea
+                            readOnly
+                            rows={2}
+                            value={lastHeardRaw}
+                            placeholder="—"
+                            className="w-full resize-y rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 font-mono text-sm text-stone-800 focus:outline-none"
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-stone-500">
+                          {t("practice.sttHeardChromeLabel")}
+                        </label>
+                        <textarea
+                          readOnly
+                          rows={2}
+                          value={lastHeardChrome}
+                          placeholder="—"
+                          className="w-full resize-y rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 font-mono text-sm text-stone-800 focus:outline-none"
+                        />
+                      </div>
+                    )}
                   </div>
                 )}
               </>
@@ -2084,17 +2419,31 @@ export default function PracticePage() {
                     </span>
                   )}
                   {speakMode && showSttHeardDebug && !flashcardRevealed && (
-                    <div className="mt-1 w-full min-w-[12rem]">
-                      <label className="mb-1 block text-xs font-medium text-stone-500">
-                        {t("practice.sttHeardRawLabel")}
-                      </label>
-                      <textarea
-                        readOnly
-                        rows={2}
-                        value={lastHeardRaw}
-                        placeholder="—"
-                        className="w-full max-w-xl resize-y rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 font-mono text-sm text-stone-800 focus:outline-none"
-                      />
+                    <div className="mt-1 w-full min-w-[12rem] space-y-2">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-stone-500">
+                          {t("practice.sttHeardChromeLabel")}
+                        </label>
+                        <textarea
+                          readOnly
+                          rows={2}
+                          value={lastHeardChrome}
+                          placeholder="—"
+                          className="w-full max-w-xl resize-y rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 font-mono text-sm text-stone-800 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-stone-500">
+                          {t("practice.sttHeardProcessedLabel")}
+                        </label>
+                        <textarea
+                          readOnly
+                          rows={2}
+                          value={lastHeardRaw}
+                          placeholder="—"
+                          className="w-full max-w-xl resize-y rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 font-mono text-sm text-stone-800 focus:outline-none"
+                        />
+                      </div>
                     </div>
                   )}
                   {!flashcardRevealed ? (

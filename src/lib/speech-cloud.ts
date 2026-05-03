@@ -1,7 +1,8 @@
 /**
  * Google Cloud Speech-to-Text client.
  * Records audio from the microphone, sends chunks to our API with phrase hints.
- * Use when "Consider only deck answers" is enabled for much better accuracy.
+ * Use when straight practice is set to Google Cloud, or flashcards use Google — phrase hints when
+ * the practice page passes a deck vocabulary; otherwise open transcription.
  */
 
 import { normalizeSpeechLocale } from "@/lib/speech-locale";
