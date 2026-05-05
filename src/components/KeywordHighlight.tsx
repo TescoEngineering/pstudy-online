@@ -30,7 +30,10 @@ export function KeywordHighlight({
           return (
             <mark
               key={i}
-              className="rounded-sm bg-amber-200 px-0.5 text-stone-900"
+              // Important: do not add horizontal padding/borders here. This component is used in a
+              // "highlight layer" behind a transparent textarea, so layout-affecting styles would
+              // desync glyph positions vs the textarea caret.
+              className="rounded-sm bg-amber-200 text-stone-900 [box-decoration-break:clone]"
             >
               {part}
             </mark>

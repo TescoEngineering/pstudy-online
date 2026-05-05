@@ -542,6 +542,8 @@ type SpeechRecognitionOptions = {
   vocabularyOnly?: boolean;
   /** Per-deck normalized heard → canonical answer (optional). */
   sttAliases?: Readonly<Record<string, string>>;
+  /** Called when recognition actually starts (mic is live). */
+  onStart?: () => void;
   onResult: (transcript: string, isFinal: boolean) => void;
   onHeardLine?: (line: string) => void;
   onError?: (message: string) => void;
@@ -695,6 +697,7 @@ export function startListening(options: SpeechRecognitionOptions): (() => void) 
   recognition.onstart = () => {
     if (!stopped) {
       browserSttTrace("recognition.onstart", { lang: recognition.lang, continuous: recognition.continuous });
+      options.onStart?.();
     }
   };
   recognition.onend = () => {

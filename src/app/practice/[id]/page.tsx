@@ -224,6 +224,23 @@ export default function PracticePage() {
   /** While open, practice mic/STT is off so mappings don’t fight the exercise. */
   const [speechMappingPanelOpen, setSpeechMappingPanelOpen] = useState(false);
   const [exerciseSetupOpen, setExerciseSetupOpen] = useState(true);
+  const [sessionPhase, setSessionPhase] = useState<"setup" | "active" | "transition" | "summary">(
+    "setup"
+  );
+  const [paused, setPaused] = useState(false);
+  const pauseRef = useRef(false);
+  pauseRef.current = paused;
+  const sessionPhaseRef = useRef(sessionPhase);
+  sessionPhaseRef.current = sessionPhase;
+  const sessionMissCountsRef = useRef<Record<string, number>>({});
+  const [sessionMissBump, setSessionMissBump] = useState(0);
+  const sessionWrongIdsRef = useRef<Set<string>>(new Set());
+  const [transitionInfo, setTransitionInfo] = useState<{
+    total: number;
+    correct: number;
+    missed: number;
+    wrongIds: string[];
+  } | null>(null);
   const speechMappingPanelOpenRef = useRef(false);
   speechMappingPanelOpenRef.current = speechMappingPanelOpen;
   const sttAliasesStorageId = deck?.lineageId ?? id;
@@ -259,6 +276,29 @@ export default function PracticePage() {
   const questionTextRef = useRef("");
   /** After check (Enter), answer field unmounts — move focus here so it doesn’t jump to the setup summary. */
   const practiceResultNextRef = useRef<HTMLButtonElement>(null);
+  const resetSessionStats = useCallback(() => {
+    sessionMissCountsRef.current = {};
+    sessionWrongIdsRef.current = new Set();
+    setSessionMissBump((b) => b + 1);
+    setCorrect(0);
+    setWrong(0);
+    setTransitionInfo(null);
+  }, []);
+
+  const startSession = useCallback(() => {
+    resetSessionStats();
+    setRepeatMistakesMode(false);
+    setWrongItems([]);
+    setIndex(0);
+    setAnswer("");
+    setShowResult(false);
+    setResultCardItem(null);
+    setFlashcardRevealed(false);
+    setPaused(false);
+    setSessionPhase("active");
+    setExerciseSetupOpen(false);
+  }, [resetSessionStats]);
+
   /** Invalidates in-flight async `startSpeakListening` (fetch + mic) when the item or phase changes. */
   const listenSeqRef = useRef(0);
   /** True from Enter-to-check until result state commits — blocks speech `onend` from restarting the mic too early. */
@@ -299,6 +339,25 @@ export default function PracticePage() {
       listenRestartTimerRef.current = null;
     }
   }, []);
+
+  const stopAllAudio = useCallback(() => {
+    bumpListenGeneration();
+    stopListeningRef.current?.();
+    stopListeningRef.current = null;
+    setIsListening(false);
+    stopSpeaking();
+    if (ttsAfterListenTimerRef.current) {
+      clearTimeout(ttsAfterListenTimerRef.current);
+      ttsAfterListenTimerRef.current = null;
+    }
+  }, [bumpListenGeneration]);
+
+  const endSessionToSummary = useCallback(() => {
+    stopAllAudio();
+    setPaused(false);
+    setShowResult(false);
+    setSessionPhase("summary");
+  }, [stopAllAudio]);
 
   speakModeRef.current = speakMode;
   showResultRef.current = showResult;
@@ -679,6 +738,8 @@ export default function PracticePage() {
   useEffect(() => {
     if (
       showResult ||
+      paused ||
+      sessionPhase !== "active" ||
       !speakMode ||
       (mode !== "straight" && mode !== "flashcard") ||
       (mode === "flashcard" && flashcardRevealed)
@@ -688,7 +749,7 @@ export default function PracticePage() {
       setIsListening(false);
       stopListeningRef.current = null;
     }
-  }, [showResult, speakMode, mode, flashcardRevealed, bumpListenGeneration]);
+  }, [showResult, paused, sessionPhase, speakMode, mode, flashcardRevealed, bumpListenGeneration]);
 
   useEffect(() => {
     if (showResult) answerCheckPendingRef.current = false;
@@ -697,6 +758,7 @@ export default function PracticePage() {
   const startSpeakListening = useCallback(async () => {
     const isFlashcard = mode === "flashcard";
     if (isFlashcard && flashcardBrowseOnly) return;
+    if (pauseRef.current || sessionPhaseRef.current !== "active") return;
     if (
       (mode !== "straight" && !isFlashcard) ||
       !speakMode ||
@@ -725,8 +787,6 @@ export default function PracticePage() {
     ) {
       return;
     }
-
-    setIsListening(true);
 
     const deckVocabulary =
       deckAnswerVocabulary.length > 0 ? [...deckAnswerVocabulary] : [];
@@ -1115,6 +1175,7 @@ export default function PracticePage() {
             onEnd: handleEnd,
             shouldIgnoreResults: () => seq !== listenSeqRef.current,
           });
+          if (stop) setIsListening(true);
         }
       } catch {
         if (seq !== listenSeqRef.current) return;
@@ -1146,6 +1207,7 @@ export default function PracticePage() {
               ? deckSttAliasesRecord
               : undefined,
         continuous: true,
+        onStart: () => setIsListening(true),
         onResult: handleResult,
         onHeardLine: onHeardGuarded,
         onError: handleError,
@@ -1192,6 +1254,7 @@ export default function PracticePage() {
     const questionText = listenQuestionSpeechText(displayCard, promptMode).trim();
     questionTextRef.current = questionText;
 
+    if (sessionPhase !== "active" || paused) return;
     if (showResult || (mode === "flashcard" && flashcardRevealed)) return;
 
     // Only speak when we've moved to a new item, not when user just toggles Speak
@@ -1213,6 +1276,8 @@ export default function PracticePage() {
     }
   }, [
     displayCard,
+    sessionPhase,
+    paused,
     listenMode,
     speakMode,
     mode,
@@ -1269,6 +1334,10 @@ export default function PracticePage() {
           setWrong((w) => Math.max(0, w - 1));
         }
       } else {
+        sessionWrongIdsRef.current.add(current.id);
+        sessionMissCountsRef.current[current.id] =
+          (sessionMissCountsRef.current[current.id] ?? 0) + 1;
+        setSessionMissBump((b) => b + 1);
         if (!repeatMistakesMode) {
           setWrong((w) => w + 1);
           setWrongItems((prev) => [...prev, current]);
@@ -1336,9 +1405,8 @@ export default function PracticePage() {
           const nextList = prev.filter((it) => it.id !== removeCorrectId);
           if (nextList.length === 0) {
             setTimeout(() => {
-              router.push(
-                `/practice/${id}/result?correct=${correct}&wrong=${wrong}&total=${originalTotal || total}`
-              );
+              setRepeatMistakesMode(false);
+              endSessionToSummary();
             }, 0);
           }
           return nextList;
@@ -1362,14 +1430,25 @@ export default function PracticePage() {
     if (displayIndex + 1 >= total) {
       const toRepeat = wrongItemsRef.current;
       if (toRepeat.length > 0) {
-        // New round of wrong-only cards — reset so Listen/TTS treats the first card as new (same id as last main-round card otherwise skipped).
-        lastSpokenForRef.current = null;
-        setList(shuffle(toRepeat));
-        setIndex(0);
-        setWrongItems([]);
-        setRepeatMistakesMode(true);
+        stopAllAudio();
+        setPaused(false);
+        setTransitionInfo({
+          total: originalTotal || total,
+          correct,
+          missed: toRepeat.length,
+          wrongIds: Array.from(new Set(toRepeat.map((it) => it.id))),
+        });
+        setSessionPhase("transition");
       } else {
-        goToResults();
+        stopAllAudio();
+        setPaused(false);
+        setTransitionInfo({
+          total: originalTotal || total,
+          correct,
+          missed: 0,
+          wrongIds: Array.from(sessionWrongIdsRef.current),
+        });
+        setSessionPhase("transition");
       }
       return;
     }
@@ -1472,7 +1551,19 @@ export default function PracticePage() {
   // Enter (flashcard answering): newline in textarea. Shift+Enter: flip. After reveal: Enter = next.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.repeat) {
+        if (sessionPhaseRef.current !== "active") return;
+        e.preventDefault();
+        setPaused((p) => {
+          const nextPaused = !p;
+          if (nextPaused) stopAllAudio();
+          return nextPaused;
+        });
+        return;
+      }
+
       if (e.key !== "Enter" || e.repeat) return;
+      if (pauseRef.current) return;
 
       if (mode === "flashcard") {
         if (flashcardBrowseOnly) {
@@ -1519,6 +1610,7 @@ export default function PracticePage() {
     flashcardRevealed,
     revealFlashcard,
     flashcardBrowseOnly,
+    stopAllAudio,
   ]);
 
   if (!deck) {
@@ -1596,8 +1688,14 @@ export default function PracticePage() {
               ← {deck.title}
             </Link>
             <span className="text-stone-600">
-              {repeatMistakesMode ? (
-                <>{t("practice.repeatMistakesLeft", { count: list.length })} · ✓ {correct} ✗ {wrong}</>
+              {sessionPhase === "setup" ? (
+                <>{t("practice.sessionNavReady")}</>
+              ) : sessionPhase === "transition" ? (
+                <>{t("practice.sessionFirstPassComplete")}</>
+              ) : sessionPhase === "summary" ? (
+                <>{t("practice.sessionSummaryTitle")}</>
+              ) : repeatMistakesMode ? (
+                <>{t("practice.sessionDrillingMistakesLeft", { count: list.length })} · ✓ {correct} ✗ {wrong}</>
               ) : mode === "flashcard" && flashcardBrowseOnly ? (
                 <>
                   {t("practice.flashcardBrowseProgress", {
@@ -2054,6 +2152,144 @@ export default function PracticePage() {
           </div>
         </details>
 
+        {sessionPhase !== "active" ? (
+          <div className="card">
+            {sessionPhase === "setup" ? (
+              <div className="space-y-3">
+                <p className="text-stone-700">{t("practice.sessionReadyIntro")}</p>
+                <button type="button" className="btn-primary" onClick={startSession}>
+                  {t("practice.sessionStartPractice")}
+                </button>
+              </div>
+            ) : sessionPhase === "transition" ? (
+              <div className="space-y-3">
+                <h2 className="text-lg font-semibold text-stone-900">
+                  {t("practice.sessionFirstPassComplete")}
+                </h2>
+                <p className="text-stone-700">
+                  {t("practice.sessionFirstPassScore", {
+                    correct: transitionInfo?.correct ?? correct,
+                    total: transitionInfo?.total ?? (originalTotal || total),
+                  })}
+                </p>
+                {(transitionInfo?.missed ?? 0) > 0 ? (
+                  <p className="text-stone-700">
+                    {t("practice.sessionFirstPassMissed", { count: transitionInfo?.missed ?? 0 })}
+                  </p>
+                ) : (
+                  <p className="text-stone-700">{t("practice.sessionFirstPassPerfect")}</p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {(transitionInfo?.missed ?? 0) > 0 ? (
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={() => {
+                        const toRepeat = wrongItemsRef.current;
+                        lastSpokenForRef.current = null;
+                        setList(shuffle(toRepeat));
+                        setIndex(0);
+                        setWrongItems([]);
+                        setRepeatMistakesMode(true);
+                        setPaused(false);
+                        setSessionPhase("active");
+                      }}
+                    >
+                      {t("practice.sessionStartDrilling")}
+                    </button>
+                  ) : (
+                    <button type="button" className="btn-primary" onClick={startSession}>
+                      {t("practice.sessionPracticeAgain")}
+                    </button>
+                  )}
+                  <button type="button" className="btn-secondary" onClick={endSessionToSummary}>
+                    {t("practice.sessionEndSession")}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <h2 className="text-lg font-semibold text-stone-900">{t("practice.sessionSummaryTitle")}</h2>
+                <p className="text-stone-700">
+                  {t("practice.sessionSummaryScore", { correct, wrong })}
+                </p>
+                {(() => {
+                  const counts = sessionMissCountsRef.current;
+                  const entries = Object.entries(counts).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0));
+                  const top = entries.slice(0, 5);
+                  if (!top.length) return <p className="text-stone-500">{t("practice.sessionSummaryNoMisses")}</p>;
+                  return (
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-stone-800">{t("practice.sessionMostMissedCards")}</p>
+                      {top.map(([itemId, n]) => {
+                        const it = (deck?.items ?? []).find((x) => x.id === itemId);
+                        if (!it) return null;
+                        return (
+                          <div key={itemId} className="rounded border border-stone-200 bg-white p-3">
+                            <p className="text-xs text-stone-500">{t("practice.sessionMissedTimes", { count: n })}</p>
+                            <p className="font-medium text-stone-900">{String(it.description ?? "").trim() || "—"}</p>
+                            <p className="mt-1 text-stone-700">{String(it.explanation ?? "").trim() || "—"}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="btn-primary" onClick={startSession}>
+                    {t("practice.sessionPracticeAllAgain")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      const ids = Array.from(sessionWrongIdsRef.current);
+                      const items = (deck?.items ?? []).filter((it) => ids.includes(it.id));
+                      resetSessionStats();
+                      lastSpokenForRef.current = null;
+                      setList(shuffle(items));
+                      setIndex(0);
+                      setWrongItems([]);
+                      setRepeatMistakesMode(true);
+                      setPaused(false);
+                      setSessionPhase("active");
+                      setExerciseSetupOpen(false);
+                    }}
+                  >
+                    {t("practice.sessionPracticeMistakesOnly")}
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={() => router.push(`/deck/${id}`)}>
+                    {t("practice.sessionDone")}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setPaused((p) => {
+                    const nextPaused = !p;
+                    if (nextPaused) stopAllAudio();
+                    return nextPaused;
+                  });
+                }}
+              >
+                {paused ? t("practice.sessionResume") : t("practice.sessionPause")}
+              </button>
+              <button type="button" className="btn-secondary" onClick={endSessionToSummary}>
+                {t("practice.sessionEndSession")}
+              </button>
+            </div>
+            {paused ? (
+              <div className="card mb-6 border-amber-200 bg-amber-50">
+                <p className="text-stone-800">{t("practice.sessionPausedBanner")}</p>
+              </div>
+            ) : null}
         {mode === "flashcard" ? (
           <div className="card mb-6">
             {activeCard.instruction ? (
@@ -2206,10 +2442,10 @@ export default function PracticePage() {
                             ? "bg-emerald-100 text-emerald-700"
                             : "bg-stone-100 text-stone-500"
                         }`}
-                        title={isListening ? "Listening... Press Enter to submit" : "Speak mode on"}
+                        title={isListening ? t("practice.straightSpeakListeningTitle") : t("practice.straightSpeakModeTitle")}
                       >
                         <span className="h-2 w-2 rounded-full bg-current" />
-                        {isListening ? "Listening" : "Speak on"}
+                        {isListening ? t("practice.listening") : t("practice.speakOn")}
                       </span>
                     )}
                   </div>
@@ -2601,6 +2837,8 @@ export default function PracticePage() {
                   : t("common.next")}
             </button>
           </div>
+        )}
+          </>
         )}
       </main>
     </div>

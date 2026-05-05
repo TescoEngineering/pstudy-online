@@ -80,7 +80,7 @@ import {
 } from "@/lib/user-classification-suggestions";
 import { writeLastDeckClassificationPrefs } from "@/lib/last-deck-classification-prefs";
 import { SpeechLanguageSelectOptions } from "@/components/SpeechLanguageSelectOptions";
-import { matchSpeechLanguageSelectValue } from "@/lib/speech-languages";
+import { matchSpeechLanguageSelectValue, SPEECH_LANGUAGES } from "@/lib/speech-languages";
 import {
   deckContentLanguagesClassificationComplete,
   getDeckContentLanguageLabel,
@@ -89,6 +89,7 @@ import {
   type DeckContentLanguageCode,
 } from "@/lib/deck-content-language";
 import { deckIsReadOnlyPublication } from "@/lib/deck-publication";
+import { defaultVoiceLangFromDeckContent } from "@/lib/practice-voice-langs";
 import type { DeckOrgShareVisibility } from "@/types/organization";
 import {
   fetchMyOrganizationMemberships,
@@ -1030,6 +1031,16 @@ export default function DeckEditorPage() {
 
   const deckLocked = deck ? deckIsReadOnlyPublication(deck.publicationStatus ?? "draft") : false;
   const isDeckOwner = !!(deck && currentUserId && deck.ownerId === currentUserId);
+  const deckDictationLang = defaultVoiceLangFromDeckContent(deck.contentLanguage);
+  const topicDictationLang = (() => {
+    if ((deck.fieldOfInterest ?? "").trim() !== "Languages") return deckDictationLang;
+    const raw = (deck.topic ?? "").trim();
+    if (!raw || raw.toLowerCase() === "other") return deckDictationLang;
+    const asCode = matchSpeechLanguageSelectValue(raw);
+    if (asCode && asCode !== "other") return asCode;
+    const byName = SPEECH_LANGUAGES.find((l) => l.name.toLowerCase() === raw.toLowerCase());
+    return byName ? byName.code : deckDictationLang;
+  })();
 
   return (
     <div className="min-h-screen bg-stone-50">
@@ -1588,24 +1599,30 @@ export default function DeckEditorPage() {
             </button>
           </div>
         ) : null}
-        <div className="mb-4 flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-          <span className="text-stone-600">{deck.items.length} {t("dashboard.items", { count: deck.items.length })}</span>
-          {!deckLocked ? (
-          <button type="button" onClick={addItem} className="btn-primary text-sm">
-            {t("deck.addItem")}
-          </button>
-          ) : null}
-          <Link href={`/exams/new?deck=${id}`} className="btn-secondary text-sm">
-            {t("exam.newExam")}
-          </Link>
-          <Link href={`/practice/${id}`} className="btn-primary text-sm">
-            {t("common.practice")}
-          </Link>
-          <button type="button" onClick={handleExportTxt} className="btn-secondary text-sm">
-            {t("dashboard.exportAsTxt")}
-          </button>
-          <div className="relative" ref={columnMenuRef}>
+        <div className="rounded-lg border border-stone-200 bg-white">
+          <div className="sticky top-0 z-30 flex min-h-16 flex-wrap items-center gap-3 border-b border-stone-200 bg-white/95 px-3 py-2 backdrop-blur">
+            <span className="shrink-0 whitespace-nowrap text-stone-600">
+              {deck.items.length} {t("dashboard.items", { count: deck.items.length })}
+            </span>
+            {!deckLocked ? (
+              <button type="button" onClick={addItem} className="btn-primary shrink-0 text-sm">
+                {t("deck.addItem")}
+              </button>
+            ) : null}
+            <Link href={`/exams/new?deck=${id}`} className="btn-secondary shrink-0 text-sm">
+              {t("exam.newExam")}
+            </Link>
+            <Link href={`/practice/${id}`} className="btn-primary shrink-0 text-sm">
+              {t("common.practice")}
+            </Link>
+            <button
+              type="button"
+              onClick={handleExportTxt}
+              className="btn-secondary shrink-0 text-sm"
+            >
+              {t("dashboard.exportAsTxt")}
+            </button>
+            <div className="relative shrink-0" ref={columnMenuRef}>
             <button
               type="button"
               data-testid="deck-column-filters-trigger"
@@ -1665,14 +1682,13 @@ export default function DeckEditorPage() {
                 </div>
               </div>
             ) : null}
+            </div>
           </div>
-          </div>
-        </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse rounded-lg border border-stone-200 bg-white text-left text-sm">
+          <div className="max-h-[calc(100vh-18rem)] overflow-auto">
+            <table className="w-full border-collapse bg-white text-left text-sm">
             <thead>
-              <tr className="border-b border-stone-200 bg-stone-50">
+              <tr className="sticky top-0 z-20 border-b border-stone-200 bg-stone-50">
                 <th className="p-2 font-medium">#</th>
                 <th className="p-2 font-medium">{t("deck.description")}</th>
                 <th className="p-2 font-medium">{t("deck.explanation")}</th>
@@ -1712,6 +1728,7 @@ export default function DeckEditorPage() {
                         onKeywordsChange: (next) =>
                           updateItem(i, { ...item, keywords: next }),
                       }}
+                      dictation={deckLocked ? undefined : { lang: topicDictationLang }}
                     />
                   </td>
                   <td className="p-2">
@@ -1729,7 +1746,7 @@ export default function DeckEditorPage() {
                         onKeywordsChange: (next) =>
                           updateItem(i, { ...item, keywords: next }),
                       }}
-                      dictation={deckLocked ? undefined : {}}
+                      dictation={deckLocked ? undefined : { lang: deckDictationLang }}
                     />
                   </td>
                   {columnFilters.mc ? (
@@ -1824,6 +1841,7 @@ export default function DeckEditorPage() {
               ))}
             </tbody>
           </table>
+        </div>
         </div>
       </main>
 

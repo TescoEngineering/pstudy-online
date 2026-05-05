@@ -44,8 +44,8 @@ export function FlashcardKeywordHighlight({
               key={i}
               className={
                 userHasIt
-                  ? "rounded-sm bg-emerald-200 px-0.5 font-medium text-emerald-950"
-                  : "rounded-sm bg-red-200 px-0.5 font-medium text-red-950"
+                  ? "rounded-sm bg-emerald-200 font-medium text-emerald-950 [box-decoration-break:clone]"
+                  : "rounded-sm bg-red-200 font-medium text-red-950 [box-decoration-break:clone]"
               }
             >
               {part}
@@ -58,7 +58,7 @@ export function FlashcardKeywordHighlight({
           return (
             <mark
               key={i}
-              className="rounded-sm bg-emerald-200 px-0.5 font-medium text-emerald-950"
+              className="rounded-sm bg-emerald-200 font-medium text-emerald-950 [box-decoration-break:clone]"
             >
               {part}
             </mark>

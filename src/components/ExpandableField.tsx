@@ -6,6 +6,9 @@ import { splitKeywordTags, splitKeywordTagsForHighlight } from "@/lib/flashcard"
 import { KeywordHighlight } from "@/components/KeywordHighlight";
 import { isSpeechRecognitionSupported, startListening } from "@/lib/speech";
 import { useToast } from "@/components/Toast";
+import { ContextHint } from "@/components/ContextHint";
+import { SpeechLanguageSelectOptions } from "@/components/SpeechLanguageSelectOptions";
+import { matchSpeechLanguageSelectValue } from "@/lib/speech-languages";
 
 type KeywordTaggingApi = {
   keywords: string;
@@ -52,11 +55,17 @@ function keywordOverlapsSelection(
 }
 
 function resolveDictationLang(explicit?: string): string {
-  if (explicit?.trim()) return explicit.trim();
+  if (explicit?.trim()) {
+    const m = matchSpeechLanguageSelectValue(explicit.trim());
+    if (m && m !== "other") return m;
+  }
   if (typeof window !== "undefined") {
     try {
       const s = localStorage.getItem("pstudy-speech-lang");
-      if (s?.trim()) return s.trim();
+      if (s?.trim()) {
+        const m = matchSpeechLanguageSelectValue(s.trim());
+        if (m && m !== "other") return m;
+      }
     } catch {
       /* ignore */
     }
@@ -119,10 +128,16 @@ export function ExpandableField({
   const dictationWantedRef = useRef(false);
   const dictationRestartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [dictationListening, setDictationListening] = useState(false);
+  const [dictationLang, setDictationLang] = useState(() => resolveDictationLang(dictation?.lang));
 
   useEffect(() => {
     setLocalValue(toFieldString(value));
   }, [value, isExpanded]);
+
+  useEffect(() => {
+    if (!isExpanded || !dictation) return;
+    setDictationLang(resolveDictationLang(dictation.lang));
+  }, [isExpanded, dictation?.lang, dictation]);
 
   const stopDictation = useCallback(() => {
     dictationWantedRef.current = false;
@@ -153,7 +168,7 @@ export function ExpandableField({
       toast.error(t("practice.speechInputUnavailable"));
       return;
     }
-    const lang = resolveDictationLang(dictation.lang);
+    const lang = resolveDictationLang(dictationLang);
     stopDictation();
     dictationWantedRef.current = true;
     setDictationListening(true);
@@ -216,7 +231,7 @@ export function ExpandableField({
     };
 
     runListen();
-  }, [dictation, stopDictation, toast, t]);
+  }, [dictation, dictationLang, stopDictation, toast, t]);
 
   const toggleDictation = useCallback(() => {
     if (dictationListening) stopDictation();
@@ -409,7 +424,19 @@ export function ExpandableField({
                     ? t("deck.dictationStop")
                     : t("deck.dictationStart")}
                 </button>
-                <span className="text-xs text-stone-500">{t("deck.dictationHint")}</span>
+                <ContextHint>
+                  <p className="m-0 text-sm text-stone-700">{t("deck.dictationHint")}</p>
+                </ContextHint>
+                <select
+                  value={dictationLang}
+                  disabled={dictationListening}
+                  onChange={(e) => setDictationLang(resolveDictationLang(e.target.value))}
+                  className="h-9 rounded-lg border border-stone-300 bg-white px-2 text-sm text-stone-800 shadow-sm hover:border-stone-400 focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary disabled:opacity-50"
+                  aria-label={t("practice.speakLanguage")}
+                  title={t("practice.speakLanguage")}
+                >
+                  <SpeechLanguageSelectOptions />
+                </select>
                 {dictationListening ? (
                   <span className="flex items-center gap-1 text-xs text-emerald-700">
                     <span className="h-2 w-2 animate-pulse rounded-full bg-current" />
@@ -429,6 +456,9 @@ export function ExpandableField({
                   >
                     {t("deck.addSelectionAsKeyword")}
                   </button>
+                  <ContextHint>
+                    <p className="m-0 text-sm text-stone-700">{t("deck.keywordMarkerHint")}</p>
+                  </ContextHint>
                   <button
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
@@ -438,7 +468,6 @@ export function ExpandableField({
                     {t("deck.removeSelectionFromKeyword")}
                   </button>
                 </div>
-                <p className="text-xs text-stone-600">{t("deck.keywordMarkerHint")}</p>
               </div>
             ) : null}
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
