@@ -32,9 +32,12 @@ import { browserSttTrace } from "@/lib/speech-diagnostics";
 import { SpeechLanguageSelectOptions } from "@/components/SpeechLanguageSelectOptions";
 import {
   practiceVoiceLangStorageKey,
+  loadPracticeVoiceLangs,
   resolvePracticeVoiceLangs,
   savePracticeVoiceLangs,
+  defaultVoiceLangFromDeckContent,
 } from "@/lib/practice-voice-langs";
+import { matchSpeechLanguageSelectValue, SPEECH_LANGUAGES } from "@/lib/speech-languages";
 import {
   parseFlashcardRevealSegments,
   splitKeywordTags,
@@ -181,6 +184,7 @@ export default function PracticePage() {
   const [listenLang, setListenLang] = useState("en");
   /** STT / “Speak” microphone language (per deck + localStorage). */
   const [speakLang, setSpeakLang] = useState("en");
+  const voiceLangTouchedRef = useRef(false);
   const [vocabularyBias, setVocabularyBias] = useState(false);
   const [showSttHeardDebug, setShowSttHeardDebug] = useState(false);
   /** Last line from `onHeardLine` (Chrome cumulative / raw). */
@@ -485,12 +489,86 @@ export default function PracticePage() {
 
   useEffect(() => {
     if (!deck) return;
+    voiceLangTouchedRef.current = false;
     const key = practiceVoiceLangStorageKey(deck.lineageId, deck.id);
-    const { listen, speak } = resolvePracticeVoiceLangs(deck.contentLanguage, key);
-    setListenLang(listen);
-    setSpeakLang(speak);
-    savePracticeVoiceLangs(key, listen, speak, deck.contentLanguage);
-  }, [deck?.id, deck?.lineageId, deck?.contentLanguage]);
+    const isLangDeck = (deck.fieldOfInterest ?? "").trim() === "Languages";
+    if (isLangDeck) {
+      const base = defaultVoiceLangFromDeckContent(deck.contentLanguage);
+      const topicLang = (() => {
+        const raw = (deck.topic ?? "").trim();
+        if (!raw || raw.toLowerCase() === "other") return base;
+        const asCode = matchSpeechLanguageSelectValue(raw);
+        if (asCode && asCode !== "other") return asCode;
+        const byName = SPEECH_LANGUAGES.find((l) => l.name.toLowerCase() === raw.toLowerCase());
+        return byName ? byName.code : base;
+      })();
+      const next =
+        promptMode === "explanation"
+          ? { listen: topicLang, speak: base }
+          : { listen: base, speak: topicLang };
+      setListenLang(next.listen);
+      setSpeakLang(next.speak);
+      return;
+    }
+    const r = resolvePracticeVoiceLangs(deck.contentLanguage, key, {
+      fieldOfInterest: deck.fieldOfInterest,
+      topic: deck.topic,
+      askFor: promptMode,
+    });
+    setListenLang(r.listen);
+    setSpeakLang(r.speak);
+    savePracticeVoiceLangs(key, r.listen, r.speak, deck.contentLanguage);
+  }, [deck?.id, deck?.lineageId, deck?.contentLanguage, deck?.fieldOfInterest, deck?.topic]);
+
+  useEffect(() => {
+    if (!deck) return;
+    // Only auto-adjust defaults when the user hasn't chosen custom languages for this deck.
+    if (voiceLangTouchedRef.current) return;
+    const key = practiceVoiceLangStorageKey(deck.lineageId, deck.id);
+    const isLangDeck = (deck.fieldOfInterest ?? "").trim() === "Languages";
+    if (isLangDeck) {
+      const base = defaultVoiceLangFromDeckContent(deck.contentLanguage);
+      const topicLang = (() => {
+        const raw = (deck.topic ?? "").trim();
+        if (!raw || raw.toLowerCase() === "other") return base;
+        const asCode = matchSpeechLanguageSelectValue(raw);
+        if (asCode && asCode !== "other") return asCode;
+        const byName = SPEECH_LANGUAGES.find((l) => l.name.toLowerCase() === raw.toLowerCase());
+        return byName ? byName.code : base;
+      })();
+      const next =
+        promptMode === "explanation"
+          ? { listen: topicLang, speak: base }
+          : { listen: base, speak: topicLang };
+      setListenLang(next.listen);
+      setSpeakLang(next.speak);
+      return;
+    }
+    const loaded = loadPracticeVoiceLangs(key);
+    const r = resolvePracticeVoiceLangs(deck.contentLanguage, key, {
+      fieldOfInterest: deck.fieldOfInterest,
+      topic: deck.topic,
+      askFor: promptMode,
+    });
+    // For language-learning decks, auto-switch when Ask-for flips, as long as the user hasn't manually chosen.
+    // We detect "auto" saved values by matching the other Ask-for default pair.
+    if (r.source !== "default") {
+      const isLangDeck = (deck.fieldOfInterest ?? "").trim() === "Languages";
+      if (!isLangDeck || !loaded) return;
+      const otherAskFor = promptMode === "explanation" ? "description" : "explanation";
+      const otherDefaults = resolvePracticeVoiceLangs(deck.contentLanguage, key, {
+        fieldOfInterest: deck.fieldOfInterest,
+        topic: deck.topic,
+        askFor: otherAskFor,
+      });
+      const matchesOther =
+        loaded.listen === otherDefaults.listen && loaded.speak === otherDefaults.speak;
+      if (!matchesOther) return;
+    }
+    setListenLang(r.listen);
+    setSpeakLang(r.speak);
+    savePracticeVoiceLangs(key, r.listen, r.speak, deck.contentLanguage);
+  }, [promptMode, deck?.id]);
 
   useEffect(() => {
     try {
@@ -1627,7 +1705,7 @@ export default function PracticePage() {
     );
   }
 
-  if (list.length === 0) {
+  if (list.length === 0 && sessionPhase === "active") {
     const filteredFlashcardEmpty =
       !!deck &&
       deck.items.length > 0 &&
@@ -1658,7 +1736,7 @@ export default function PracticePage() {
     );
   }
 
-  if (!current) {
+  if (!current && sessionPhase === "active") {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4">
         <Link href={`/deck/${id}`} className="btn-primary">
@@ -1669,7 +1747,8 @@ export default function PracticePage() {
     );
   }
 
-  const activeCard: PStudyItem = displayCard ?? current;
+  const activeCard: PStudyItem =
+    displayCard ?? current ?? deck.items[0] ?? { id: "", description: "", explanation: "" };
   const visibleSideText =
     promptMode === "description"
       ? String(activeCard.explanation ?? "")
@@ -2009,15 +2088,8 @@ export default function PracticePage() {
                 value={listenLang}
                 onChange={(e) => {
                   const v = e.target.value;
+                  voiceLangTouchedRef.current = true;
                   setListenLang(v);
-                  if (deck) {
-                    savePracticeVoiceLangs(
-                      practiceVoiceLangStorageKey(deck.lineageId, deck.id),
-                      v,
-                      speakLang,
-                      deck.contentLanguage
-                    );
-                  }
                 }}
                 className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
               >
@@ -2030,15 +2102,8 @@ export default function PracticePage() {
                 value={speakLang}
                 onChange={(e) => {
                   const v = e.target.value;
+                  voiceLangTouchedRef.current = true;
                   setSpeakLang(v);
-                  if (deck) {
-                    savePracticeVoiceLangs(
-                      practiceVoiceLangStorageKey(deck.lineageId, deck.id),
-                      listenLang,
-                      v,
-                      deck.contentLanguage
-                    );
-                  }
                 }}
                 className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
               >
@@ -2551,7 +2616,7 @@ export default function PracticePage() {
                         }}
                         className="btn-secondary"
                       >
-                        {isItemKnown(id, current.id)
+                        {current && isItemKnown(id, current.id)
                           ? t("practice.flashcardMarkUnknown")
                           : t("practice.flashcardMarkKnown")}
                       </button>
@@ -2710,7 +2775,7 @@ export default function PracticePage() {
                         }}
                         className="btn-secondary"
                       >
-                        {isItemKnown(id, current.id)
+                        {current && isItemKnown(id, current.id)
                           ? t("practice.flashcardMarkUnknown")
                           : t("practice.flashcardMarkKnown")}
                       </button>

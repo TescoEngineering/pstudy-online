@@ -68,12 +68,12 @@ describe("practice-voice-langs", () => {
       JSON.stringify({ listen: "en", speak: "en" })
     );
     const r = resolvePracticeVoiceLangs("nl", "deck-1");
-    expect(r).toEqual({ listen: "nl", speak: "nl" });
+    expect(r).toEqual({ listen: "nl", speak: "nl", source: "default" });
   });
 
   it("resets prefs when deck content language snapshot changes", () => {
     savePracticeVoiceLangs("deck-1", "fr", "de", "fr");
     const r = resolvePracticeVoiceLangs("nl", "deck-1");
-    expect(r).toEqual({ listen: "nl", speak: "nl" });
+    expect(r).toEqual({ listen: "nl", speak: "nl", source: "default" });
   });
 });

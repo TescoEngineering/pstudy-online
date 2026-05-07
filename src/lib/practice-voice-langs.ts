@@ -4,6 +4,7 @@
 
 import { parseDeckContentLanguages } from "@/lib/deck-content-language";
 import { matchSpeechLanguageSelectValue } from "@/lib/speech-languages";
+import { SPEECH_LANGUAGES } from "@/lib/speech-languages";
 
 export const PRACTICE_VOICE_LANG_LS_PREFIX = "pstudy-practice-voice-v1:";
 export const LEGACY_SPEECH_LANG_KEY = "pstudy-speech-lang";
@@ -78,23 +79,59 @@ export function loadPracticeVoiceLangs(storageKey: string): LoadedPracticeVoiceL
  */
 export function resolvePracticeVoiceLangs(
   deckContentLanguageRaw: string | null | undefined,
-  storageKey: string
-): { listen: string; speak: string } {
+  storageKey: string,
+  opts?: {
+    fieldOfInterest?: string | null;
+    topic?: string | null;
+    /** What side is being practiced as the expected answer. */
+    askFor?: "description" | "explanation";
+  }
+): { listen: string; speak: string; source: "saved" | "default" } {
   const base = defaultVoiceLangFromDeckContent(deckContentLanguageRaw);
+  const topicLang = (() => {
+    if ((opts?.fieldOfInterest ?? "").trim() !== "Languages") return base;
+    const raw = (opts?.topic ?? "").trim();
+    if (!raw || raw.toLowerCase() === "other") return base;
+    const asCode = matchSpeechLanguageSelectValue(raw);
+    if (asCode && asCode !== "other") return asCode;
+    const byName = SPEECH_LANGUAGES.find((l) => l.name.toLowerCase() === raw.toLowerCase());
+    return byName ? byName.code : base;
+  })();
+  const defaults = (() => {
+    if ((opts?.fieldOfInterest ?? "").trim() !== "Languages") return { listen: base, speak: base };
+    // Language-learning decks: topic = learned language (Description), deck content language = Explanation.
+    // - Speak: match expected answering language (Ask for)
+    // - Listen: match prompt language (opposite side that is shown)
+    if (opts?.askFor === "explanation") {
+      return { listen: topicLang, speak: base };
+    }
+    // Default to "Ask for description".
+    return { listen: base, speak: topicLang };
+  })();
   const snap = contentLangSnapshot(deckContentLanguageRaw);
   const loaded = loadPracticeVoiceLangs(storageKey);
   if (!loaded) {
-    return { listen: base, speak: base };
+    return { ...defaults, source: "default" };
   }
   if (loaded.deckContentLang != null && loaded.deckContentLang !== snap) {
-    return { listen: base, speak: base };
+    return { ...defaults, source: "default" };
   }
   if (loaded.deckContentLang == null && snap && snap !== "") {
-    if (loaded.listen === "en" && loaded.speak === "en" && base !== "en") {
-      return { listen: base, speak: base };
+    if (loaded.listen === "en" && loaded.speak === "en" && defaults.listen !== "en") {
+      return { ...defaults, source: "default" };
     }
   }
-  return { listen: loaded.listen, speak: loaded.speak };
+  // Language-learning decks: if prefs were effectively "use deck language for everything",
+  // treat them as non-custom defaults and allow the new askFor-based split to apply.
+  if (
+    (opts?.fieldOfInterest ?? "").trim() === "Languages" &&
+    topicLang !== base &&
+    loaded.listen === base &&
+    loaded.speak === base
+  ) {
+    return { ...defaults, source: "default" };
+  }
+  return { listen: loaded.listen, speak: loaded.speak, source: "saved" };
 }
 
 export function savePracticeVoiceLangs(
