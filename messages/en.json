@@ -356,7 +356,18 @@
     "sessionDrillingMistakesLeft": "Drilling mistakes — {count} left",
     "sessionDrillingMistakesLeft_plural": "Drilling mistakes — {count} left",
     "straightSpeakListeningTitle": "Listening... Press Enter to submit",
-    "straightSpeakModeTitle": "Speak mode on"
+    "straightSpeakModeTitle": "Speak mode on",
+    "straightPreviewOnly": "Preview only — read all Q/A pairs first",
+    "straightPreviewHint": "Skims straight-answer items with no typing, scoring, or microphone. Turn off when you want to practice for real.",
+    "straightPreviewListenQuestion": "Listen — read question in preview",
+    "straightPreviewListenAnswer": "Listen — read answer in preview",
+    "straightPreviewProgress": "Preview — {current} of {total}",
+    "straightPreviewCompleteHeading": "Preview complete",
+    "straightPreviewCompleteSubline": "You've previewed all {count} items. Ready to practice?",
+    "straightPreviewAgain": "Preview again",
+    "straightPreviewSwitchToPractice": "Switch to practice",
+    "straightPreviewQuestionLabel": "Question",
+    "straightPreviewAnswerLabel": "Answer"
   },
   "result": {
     "complete": "Practice complete",

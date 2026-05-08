@@ -227,7 +227,18 @@
     "sessionDrillingMistakesLeft": "Ripasso errori — {count} rimanenti",
     "sessionDrillingMistakesLeft_plural": "Ripasso errori — {count} rimanenti",
     "straightSpeakListeningTitle": "In ascolto… Premi Invio per inviare",
-    "straightSpeakModeTitle": "Modalità parlato attiva"
+    "straightSpeakModeTitle": "Modalità parlato attiva",
+    "straightPreviewOnly": "Solo anteprima — leggi prima tutte le coppie domanda/risposta",
+    "straightPreviewHint": "Scorre le schede a risposta diretta senza digitazione, punteggio o microfono. Disattiva per esercitarti sul serio.",
+    "straightPreviewListenQuestion": "Ascolta — leggi la domanda in anteprima",
+    "straightPreviewListenAnswer": "Ascolta — leggi la risposta in anteprima",
+    "straightPreviewProgress": "Anteprima — {current} di {total}",
+    "straightPreviewCompleteHeading": "Anteprima completata",
+    "straightPreviewCompleteSubline": "Hai visto tutte le {count} schede in anteprima. Pronto a esercitarti?",
+    "straightPreviewAgain": "Anteprima di nuovo",
+    "straightPreviewSwitchToPractice": "Passa alla pratica",
+    "straightPreviewQuestionLabel": "Domanda",
+    "straightPreviewAnswerLabel": "Risposta"
   },
   "result": {
     "complete": "Esercitazione completata",

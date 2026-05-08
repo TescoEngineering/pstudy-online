@@ -227,7 +227,18 @@
     "sessionDrillingMistakesLeft": "Repasando errores — {count} restantes",
     "sessionDrillingMistakesLeft_plural": "Repasando errores — {count} restantes",
     "straightSpeakListeningTitle": "Escuchando… Pulsa Intro para enviar",
-    "straightSpeakModeTitle": "Hablar activado"
+    "straightSpeakModeTitle": "Hablar activado",
+    "straightPreviewOnly": "Solo vista previa — leer primero todas las parejas pregunta/respuesta",
+    "straightPreviewHint": "Recorre las tarjetas de respuesta directa sin escribir, puntuación ni micrófono. Desactívalo para practicar de verdad.",
+    "straightPreviewListenQuestion": "Escuchar — leer la pregunta en la vista previa",
+    "straightPreviewListenAnswer": "Escuchar — leer la respuesta en la vista previa",
+    "straightPreviewProgress": "Vista previa — {current} de {total}",
+    "straightPreviewCompleteHeading": "Vista previa terminada",
+    "straightPreviewCompleteSubline": "Has visto las {count} tarjetas en vista previa. ¿Listo para practicar?",
+    "straightPreviewAgain": "Vista previa otra vez",
+    "straightPreviewSwitchToPractice": "Cambiar a práctica",
+    "straightPreviewQuestionLabel": "Pregunta",
+    "straightPreviewAnswerLabel": "Respuesta"
   },
   "result": {
     "complete": "Práctica completada",

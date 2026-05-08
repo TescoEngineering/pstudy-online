@@ -252,7 +252,18 @@
     "sessionDrillingMistakesLeft": "Wiederholungen — noch {count}",
     "sessionDrillingMistakesLeft_plural": "Wiederholungen — noch {count}",
     "straightSpeakListeningTitle": "Es wird zugehört … Enter zum Absenden",
-    "straightSpeakModeTitle": "Sprachmodus an"
+    "straightSpeakModeTitle": "Sprachmodus an",
+    "straightPreviewOnly": "Nur Vorschau — zuerst alle Fragen/Antworten lesen",
+    "straightPreviewHint": "Zeigt alle Karten mit Frage und Antwort, ohne Eingabe, Bewertung oder Mikrofon. Aus, wenn Sie richtig üben möchten.",
+    "straightPreviewListenQuestion": "Anhören — Frage in der Vorschau vorlesen",
+    "straightPreviewListenAnswer": "Anhören — Antwort in der Vorschau vorlesen",
+    "straightPreviewProgress": "Vorschau — {current} von {total}",
+    "straightPreviewCompleteHeading": "Vorschau beendet",
+    "straightPreviewCompleteSubline": "Sie haben alle {count} Karten in der Vorschau gesehen. Bereit zum Üben?",
+    "straightPreviewAgain": "Nochmal Vorschau",
+    "straightPreviewSwitchToPractice": "Zum Üben wechseln",
+    "straightPreviewQuestionLabel": "Frage",
+    "straightPreviewAnswerLabel": "Antwort"
   },
   "result": {
     "complete": "Übung abgeschlossen",

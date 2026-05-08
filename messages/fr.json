@@ -227,7 +227,18 @@
     "sessionDrillingMistakesLeft": "Rappel des erreurs — {count} restante(s)",
     "sessionDrillingMistakesLeft_plural": "Rappel des erreurs — {count} restante(s)",
     "straightSpeakListeningTitle": "Écoute… Appuyez sur Entrée pour valider",
-    "straightSpeakModeTitle": "Mode parole activé"
+    "straightSpeakModeTitle": "Mode parole activé",
+    "straightPreviewOnly": "Aperçu seulement — lire d'abord toutes les paires Q/R",
+    "straightPreviewHint": "Parcourt les cartes en réponse directe sans saisie, score ni micro. Désactivez pour vous entraîner pour de bon.",
+    "straightPreviewListenQuestion": "Écouter — lire la question pendant l'aperçu",
+    "straightPreviewListenAnswer": "Écouter — lire la réponse pendant l'aperçu",
+    "straightPreviewProgress": "Aperçu — {current} sur {total}",
+    "straightPreviewCompleteHeading": "Aperçu terminé",
+    "straightPreviewCompleteSubline": "Vous avez parcouru les {count} cartes en aperçu. Prêt à pratiquer ?",
+    "straightPreviewAgain": "Relancer l'aperçu",
+    "straightPreviewSwitchToPractice": "Passer à la pratique",
+    "straightPreviewQuestionLabel": "Question",
+    "straightPreviewAnswerLabel": "Réponse"
   },
   "result": {
     "complete": "Pratique terminée",

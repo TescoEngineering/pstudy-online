@@ -82,6 +82,18 @@ function listenQuestionSpeechText(item: PStudyItem, promptMode: "description" | 
   return inst || main;
 }
 
+/** On-screen straight preview lines only (no instruction), aligned with post-reveal straight layout. */
+function straightPreviewPromptAndAnswer(
+  item: PStudyItem,
+  promptMode: "description" | "explanation"
+): { prompt: string; answer: string } {
+  const prompt =
+    (promptMode === "description" ? item.explanation : item.description)?.trim() ?? "";
+  const answer =
+    (promptMode === "description" ? item.description : item.explanation)?.trim() ?? "";
+  return { prompt: String(prompt), answer: String(answer) };
+}
+
 function FlashcardRevealedView({
   text,
   keywordTags,
@@ -228,9 +240,9 @@ export default function PracticePage() {
   /** While open, practice mic/STT is off so mappings don’t fight the exercise. */
   const [speechMappingPanelOpen, setSpeechMappingPanelOpen] = useState(false);
   const [exerciseSetupOpen, setExerciseSetupOpen] = useState(true);
-  const [sessionPhase, setSessionPhase] = useState<"setup" | "active" | "transition" | "summary">(
-    "setup"
-  );
+  const [sessionPhase, setSessionPhase] = useState<
+    "setup" | "active" | "transition" | "summary" | "preview-complete"
+  >("setup");
   const [paused, setPaused] = useState(false);
   const pauseRef = useRef(false);
   pauseRef.current = paused;
@@ -259,6 +271,28 @@ export default function PracticePage() {
   /** Flashcard: flip through cards without answering (warm-up before practice). */
   const [flashcardBrowseOnly, setFlashcardBrowseOnly] = useState(false);
   const flashcardBrowseOnlyRef = useRef(false);
+  /** Straight answer: skim Q/A with no scoring or mic (parallel to practice, not a scored phase). */
+  const [straightPreviewOnly, setStraightPreviewOnly] = useState(false);
+  const [straightPreviewListenQuestion, setStraightPreviewListenQuestion] = useState(true);
+  const [straightPreviewListenAnswer, setStraightPreviewListenAnswer] = useState(true);
+  const [straightPreviewSession, setStraightPreviewSession] = useState(false);
+  const straightPreviewSessionRef = useRef(false);
+  straightPreviewSessionRef.current = straightPreviewSession;
+  const straightPreviewPlaybackIdRef = useRef(0);
+  const straightPreviewTimeoutsRef = useRef<number[]>([]);
+  const straightPreviewWasPausedRef = useRef(false);
+
+  useEffect(() => {
+    if (sessionPhase !== "active" || !straightPreviewSession || mode !== "straight") {
+      straightPreviewWasPausedRef.current = paused;
+      return;
+    }
+    if (straightPreviewWasPausedRef.current && !paused) {
+      setExerciseSetupOpen(false);
+    }
+    straightPreviewWasPausedRef.current = paused;
+  }, [paused, straightPreviewSession, mode, sessionPhase]);
+
   const [keywordClozeMode, setKeywordClozeMode] = useState(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -299,9 +333,10 @@ export default function PracticePage() {
     setResultCardItem(null);
     setFlashcardRevealed(false);
     setPaused(false);
+    setStraightPreviewSession(mode === "straight" && straightPreviewOnly);
     setSessionPhase("active");
     setExerciseSetupOpen(false);
-  }, [resetSessionStats]);
+  }, [resetSessionStats, mode, straightPreviewOnly]);
 
   /** Invalidates in-flight async `startSpeakListening` (fetch + mic) when the item or phase changes. */
   const listenSeqRef = useRef(0);
@@ -344,8 +379,17 @@ export default function PracticePage() {
     }
   }, []);
 
+  const clearStraightPreviewAdvanceTimers = useCallback(() => {
+    for (const tid of straightPreviewTimeoutsRef.current) {
+      clearTimeout(tid);
+    }
+    straightPreviewTimeoutsRef.current = [];
+  }, []);
+
   const stopAllAudio = useCallback(() => {
     bumpListenGeneration();
+    straightPreviewPlaybackIdRef.current += 1;
+    clearStraightPreviewAdvanceTimers();
     stopListeningRef.current?.();
     stopListeningRef.current = null;
     setIsListening(false);
@@ -354,12 +398,13 @@ export default function PracticePage() {
       clearTimeout(ttsAfterListenTimerRef.current);
       ttsAfterListenTimerRef.current = null;
     }
-  }, [bumpListenGeneration]);
+  }, [bumpListenGeneration, clearStraightPreviewAdvanceTimers]);
 
   const endSessionToSummary = useCallback(() => {
     stopAllAudio();
     setPaused(false);
     setShowResult(false);
+    setStraightPreviewSession(false);
     setSessionPhase("summary");
   }, [stopAllAudio]);
 
@@ -789,11 +834,21 @@ export default function PracticePage() {
 
   useEffect(() => {
     if (mode !== "flashcard") setFlashcardBrowseOnly(false);
+    if (mode !== "straight") setStraightPreviewOnly(false);
   }, [mode]);
 
   useEffect(() => {
-    if (repeatMistakesMode) setFlashcardBrowseOnly(false);
+    if (repeatMistakesMode) {
+      setFlashcardBrowseOnly(false);
+      setStraightPreviewOnly(false);
+    }
   }, [repeatMistakesMode]);
+
+  useEffect(() => {
+    if (!straightPreviewOnly) return;
+    setKeywordClozeMode(false);
+    setSpeakMode(false);
+  }, [straightPreviewOnly]);
 
   useEffect(() => {
     if (mode === "flashcard" && flashcardBrowseOnly) {
@@ -836,6 +891,7 @@ export default function PracticePage() {
   const startSpeakListening = useCallback(async () => {
     const isFlashcard = mode === "flashcard";
     if (isFlashcard && flashcardBrowseOnly) return;
+    if (mode === "straight" && straightPreviewSessionRef.current) return;
     if (pauseRef.current || sessionPhaseRef.current !== "active") return;
     if (
       (mode !== "straight" && !isFlashcard) ||
@@ -1333,6 +1389,7 @@ export default function PracticePage() {
     questionTextRef.current = questionText;
 
     if (sessionPhase !== "active" || paused) return;
+    if (straightPreviewSession && mode === "straight") return;
     if (showResult || (mode === "flashcard" && flashcardRevealed)) return;
 
     // Only speak when we've moved to a new item, not when user just toggles Speak
@@ -1365,6 +1422,7 @@ export default function PracticePage() {
     startSpeakListening,
     listenLang,
     speechMappingPanelOpen,
+    straightPreviewSession,
   ]);
 
   useEffect(() => {
@@ -1472,6 +1530,17 @@ export default function PracticePage() {
     setShowResult(false);
     setResultCardItem(null);
     setFlashcardRevealed(false);
+    if (mode === "straight" && straightPreviewSessionRef.current && !repeatMistakesMode) {
+      clearStraightPreviewAdvanceTimers();
+      if (displayIndex + 1 >= total) {
+        setSessionPhase("preview-complete");
+        nextInFlightRef.current = false;
+        return;
+      }
+      setIndex((i) => i + 1);
+      nextInFlightRef.current = false;
+      return;
+    }
     if (mode === "flashcard" && flashcardBrowseOnly && !repeatMistakesMode) {
       if (displayIndex + 1 >= total) setIndex(0);
       else setIndex((i) => i + 1);
@@ -1544,7 +1613,144 @@ export default function PracticePage() {
     originalTotal,
     id,
     router,
+    clearStraightPreviewAdvanceTimers,
   ]);
+
+  // Straight preview: auto-advance with optional TTS (question → answer → pause → next).
+  useEffect(() => {
+    if (!straightPreviewSession || sessionPhase !== "active" || paused || mode !== "straight")
+      return;
+    if (!current) return;
+
+    const { prompt: qRaw, answer: aRaw } = straightPreviewPromptAndAnswer(current, promptMode);
+    const q = qRaw.trim();
+    const a = aRaw.trim();
+
+    let cancelled = false;
+
+    const guard = () =>
+      !cancelled &&
+      !pauseRef.current &&
+      sessionPhaseRef.current === "active" &&
+      straightPreviewSessionRef.current &&
+      modeRef.current === "straight";
+
+    const pushTimeout = (fn: () => void, ms: number) => {
+      const tid = window.setTimeout(() => {
+        if (guard()) fn();
+      }, ms);
+      straightPreviewTimeoutsRef.current.push(tid);
+    };
+
+    const advance = () => {
+      if (!guard()) return;
+      void next();
+    };
+
+    const runChain = () => {
+      if (!guard()) return;
+      const pQ = straightPreviewListenQuestion;
+      const pA = straightPreviewListenAnswer;
+      if (pQ && q) {
+        speakWithCallback(q, () => {
+          if (!guard()) return;
+          if (pA && a) {
+            pushTimeout(() => {
+              if (!guard()) return;
+              speakWithCallback(a, () => {
+                if (!guard()) return;
+                pushTimeout(advance, 1000);
+              }, listenLang);
+            }, 400);
+          } else {
+            pushTimeout(advance, 1000);
+          }
+        }, listenLang);
+      } else if (pA && a) {
+        speakWithCallback(a, () => {
+          if (!guard()) return;
+          pushTimeout(advance, 1000);
+        }, listenLang);
+      } else {
+        pushTimeout(advance, 4000);
+      }
+    };
+
+    runChain();
+
+    return () => {
+      cancelled = true;
+      stopSpeaking();
+      for (const tid of straightPreviewTimeoutsRef.current) {
+        clearTimeout(tid);
+      }
+      straightPreviewTimeoutsRef.current = [];
+    };
+  }, [
+    current?.id,
+    straightPreviewSession,
+    sessionPhase,
+    paused,
+    mode,
+    straightPreviewListenQuestion,
+    straightPreviewListenAnswer,
+    listenLang,
+    promptMode,
+    next,
+  ]);
+
+  const previewPrevStraight = useCallback(() => {
+    if (!straightPreviewSession || mode !== "straight") return;
+    straightPreviewPlaybackIdRef.current += 1;
+    clearStraightPreviewAdvanceTimers();
+    stopSpeaking();
+    bumpListenGeneration();
+    if (total <= 0) return;
+    setIndex((i) => Math.max(0, i - 1));
+  }, [
+    straightPreviewSession,
+    mode,
+    total,
+    clearStraightPreviewAdvanceTimers,
+    bumpListenGeneration,
+  ]);
+
+  const previewNextManual = useCallback(() => {
+    if (!straightPreviewSession || mode !== "straight") return;
+    straightPreviewPlaybackIdRef.current += 1;
+    clearStraightPreviewAdvanceTimers();
+    stopSpeaking();
+    void next();
+  }, [straightPreviewSession, mode, clearStraightPreviewAdvanceTimers, next]);
+
+  const restartStraightPreview = useCallback(() => {
+    setPaused(false);
+    setIndex(0);
+    setStraightPreviewSession(true);
+    setSessionPhase("active");
+  }, []);
+
+  const switchStraightPreviewToPractice = useCallback(() => {
+    if (!deck || deck.items.length === 0) return;
+    setStraightPreviewOnly(false);
+    stopAllAudio();
+    resetSessionStats();
+    setRepeatMistakesMode(false);
+    setWrongItems([]);
+    const ordered = order === "random" ? shuffle([...deck.items]) : [...deck.items];
+    setList(ordered);
+    setOriginalTotal(ordered.length);
+    setIndex(0);
+    setAnswer("");
+    setShowResult(false);
+    setResultCardItem(null);
+    setFlashcardRevealed(false);
+    setPaused(false);
+    setStraightPreviewSession(false);
+    setSessionPhase("active");
+    setExerciseSetupOpen(false);
+    lastSpokenForRef.current = null;
+  }, [deck, order, resetSessionStats, stopAllAudio]);
 
   const prev = useCallback(() => {
     if (nextInFlightRef.current) return;
@@ -1640,8 +1846,45 @@ export default function PracticePage() {
         return;
       }
 
+      if (e.key === " " && !e.repeat) {
+        const t = e.target as HTMLElement | null;
+        if (t?.closest("input, textarea, select, button, a, [contenteditable='true']")) return;
+        if (sessionPhaseRef.current !== "active") return;
+        if (!straightPreviewSessionRef.current || modeRef.current !== "straight") return;
+        e.preventDefault();
+        setPaused((p) => {
+          const nextPaused = !p;
+          if (nextPaused) stopAllAudio();
+          return nextPaused;
+        });
+        return;
+      }
+
+      if (e.key === "ArrowLeft" && !e.repeat) {
+        if (sessionPhaseRef.current !== "active" || pauseRef.current) return;
+        if (straightPreviewSessionRef.current && modeRef.current === "straight") {
+          e.preventDefault();
+          previewPrevStraight();
+          return;
+        }
+      }
+
+      if (e.key === "ArrowRight" && !e.repeat) {
+        if (sessionPhaseRef.current !== "active" || pauseRef.current) return;
+        if (straightPreviewSessionRef.current && modeRef.current === "straight") {
+          e.preventDefault();
+          previewNextManual();
+          return;
+        }
+      }
+
       if (e.key !== "Enter" || e.repeat) return;
       if (pauseRef.current) return;
+
+      if (mode === "straight" && straightPreviewSessionRef.current) {
+        e.preventDefault();
+        return;
+      }
 
       if (mode === "flashcard") {
         if (flashcardBrowseOnly) {
@@ -1689,6 +1932,8 @@ export default function PracticePage() {
     revealFlashcard,
     flashcardBrowseOnly,
     stopAllAudio,
+    previewPrevStraight,
+    previewNextManual,
   ]);
 
   if (!deck) {
@@ -1773,6 +2018,15 @@ export default function PracticePage() {
                 <>{t("practice.sessionFirstPassComplete")}</>
               ) : sessionPhase === "summary" ? (
                 <>{t("practice.sessionSummaryTitle")}</>
+              ) : sessionPhase === "preview-complete" ? (
+                <>{t("practice.straightPreviewCompleteHeading")}</>
+              ) : straightPreviewSession && mode === "straight" ? (
+                <>
+                  {t("practice.straightPreviewProgress", {
+                    current: displayIndex + 1,
+                    total,
+                  })}
+                </>
               ) : repeatMistakesMode ? (
                 <>{t("practice.sessionDrillingMistakesLeft", { count: list.length })} · ✓ {correct} ✗ {wrong}</>
               ) : mode === "flashcard" && flashcardBrowseOnly ? (
@@ -1928,7 +2182,58 @@ export default function PracticePage() {
                   </div>
                 </>
               ) : null}
-              {(mode === "straight" || mode === "flashcard") && (
+              {mode === "straight" ? (
+                <div className="flex w-full flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={straightPreviewOnly}
+                        onChange={(e) => setStraightPreviewOnly(e.target.checked)}
+                        className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                      />
+                      <span className="text-sm text-stone-700">{t("practice.straightPreviewOnly")}</span>
+                    </label>
+                    <span
+                      className="inline-flex"
+                      onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
+                      <ContextHint>
+                        <p className="m-0 text-sm text-stone-700">{t("practice.straightPreviewHint")}</p>
+                      </ContextHint>
+                    </span>
+                  </div>
+                  {straightPreviewOnly ? (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={straightPreviewListenQuestion}
+                          onChange={(e) => setStraightPreviewListenQuestion(e.target.checked)}
+                          className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                        />
+                        <span className="text-sm text-stone-600">
+                          {t("practice.straightPreviewListenQuestion")}
+                        </span>
+                      </label>
+                      <label className="flex cursor-pointer items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={straightPreviewListenAnswer}
+                          onChange={(e) => setStraightPreviewListenAnswer(e.target.checked)}
+                          className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+                        />
+                        <span className="text-sm text-stone-600">
+                          {t("practice.straightPreviewListenAnswer")}
+                        </span>
+                      </label>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              {(mode === "straight" || mode === "flashcard") &&
+                !(mode === "straight" && straightPreviewOnly) && (
                 <div className="flex w-full min-w-[min(100%,20rem)] flex-col gap-1">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <label className="flex cursor-pointer items-center gap-2">
@@ -1957,18 +2262,21 @@ export default function PracticePage() {
                     )}
                 </div>
               )}
-          <label className="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              checked={listenMode}
-              onChange={(e) => setListenMode(e.target.checked)}
-              className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
-            />
-            <span className="text-sm text-stone-600">{t("practice.listenMode")}</span>
-          </label>
+          {!(mode === "straight" && straightPreviewOnly) ? (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={listenMode}
+                onChange={(e) => setListenMode(e.target.checked)}
+                className="rounded border-stone-300 text-pstudy-primary focus:ring-pstudy-primary"
+              />
+              <span className="text-sm text-stone-600">{t("practice.listenMode")}</span>
+            </label>
+          ) : null}
           {(mode === "straight" || mode === "flashcard") &&
             (isSpeechRecognitionSupported() || cloudSttAvailable) &&
-            !(mode === "flashcard" && flashcardBrowseOnly) && (
+            !(mode === "flashcard" && flashcardBrowseOnly) &&
+            !(mode === "straight" && straightPreviewOnly) && (
               <div className="flex flex-wrap items-center gap-1.5">
                 <label className="flex cursor-pointer items-center gap-2">
                   <input
@@ -2226,6 +2534,26 @@ export default function PracticePage() {
                   {t("practice.sessionStartPractice")}
                 </button>
               </div>
+            ) : sessionPhase === "preview-complete" ? (
+              <div className="space-y-4">
+                <h2 className="text-lg font-semibold text-stone-900">
+                  {t("practice.straightPreviewCompleteHeading")}
+                </h2>
+                <p className="text-stone-700">
+                  {t("practice.straightPreviewCompleteSubline", { count: originalTotal || total })}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="btn-primary" onClick={restartStraightPreview}>
+                    {t("practice.straightPreviewAgain")}
+                  </button>
+                  <button type="button" className="btn-primary" onClick={switchStraightPreviewToPractice}>
+                    {t("practice.straightPreviewSwitchToPractice")}
+                  </button>
+                </div>
+                <Link href={`/deck/${id}`} className="text-sm text-stone-600 underline hover:text-pstudy-primary">
+                  {t("practice.sessionDone")}
+                </Link>
+              </div>
             ) : sessionPhase === "transition" ? (
               <div className="space-y-3">
                 <h2 className="text-lg font-semibold text-stone-900">
@@ -2332,30 +2660,72 @@ export default function PracticePage() {
           </div>
         ) : (
           <>
-            <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  setPaused((p) => {
-                    const nextPaused = !p;
-                    if (nextPaused) stopAllAudio();
-                    return nextPaused;
-                  });
-                }}
-              >
-                {paused ? t("practice.sessionResume") : t("practice.sessionPause")}
-              </button>
-              <button type="button" className="btn-secondary" onClick={endSessionToSummary}>
-                {t("practice.sessionEndSession")}
-              </button>
+            <div
+              className={`mb-4 flex flex-wrap items-center gap-2 ${
+                straightPreviewSession && mode === "straight" ? "justify-between" : "justify-end"
+              }`}
+            >
+              {straightPreviewSession && mode === "straight" ? (
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="btn-secondary" onClick={previewPrevStraight}>
+                    {t("common.previous")}
+                  </button>
+                  <button type="button" className="btn-primary" onClick={previewNextManual}>
+                    {t("common.next")}
+                  </button>
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => {
+                    setPaused((p) => {
+                      const nextPaused = !p;
+                      if (nextPaused) stopAllAudio();
+                      return nextPaused;
+                    });
+                  }}
+                >
+                  {paused ? t("practice.sessionResume") : t("practice.sessionPause")}
+                </button>
+                <button type="button" className="btn-secondary" onClick={endSessionToSummary}>
+                  {t("practice.sessionEndSession")}
+                </button>
+              </div>
             </div>
             {paused ? (
               <div className="card mb-6 border-amber-200 bg-amber-50">
                 <p className="text-stone-800">{t("practice.sessionPausedBanner")}</p>
               </div>
             ) : null}
-        {mode === "flashcard" ? (
+        {straightPreviewSession && mode === "straight" ? (
+          <div className="card mb-6 space-y-4">
+            {(() => {
+              const { prompt, answer: ans } = straightPreviewPromptAndAnswer(activeCard, promptMode);
+              return (
+                <>
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                      {t("practice.straightPreviewQuestionLabel")}
+                    </p>
+                    <p className="whitespace-pre-wrap break-words text-lg font-semibold leading-relaxed text-stone-900">
+                      {prompt.trim() || "—"}
+                    </p>
+                  </div>
+                  <div className="space-y-2 border-t border-stone-200 pt-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                      {t("practice.straightPreviewAnswerLabel")}
+                    </p>
+                    <p className="whitespace-pre-wrap break-words text-lg font-semibold leading-relaxed text-stone-900">
+                      {ans.trim() || "—"}
+                    </p>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        ) : mode === "flashcard" ? (
           <div className="card mb-6">
             {activeCard.instruction ? (
               <p className="text-sm text-stone-500">{activeCard.instruction}</p>
