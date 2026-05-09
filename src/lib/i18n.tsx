@@ -93,19 +93,30 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       key: string,
       params?: Record<string, string | number> & { count?: number }
     ): string => {
-      let lookupKey = key;
+      const pluralSuffixKey = params?.count !== undefined
+        ? key.replace(/(\w+)$/, "$1_plural")
+        : null;
+      const tries: string[] = [];
       if (params?.count !== undefined) {
-        const pluralKey = key.replace(/(\w+)$/, "$1_plural");
-        lookupKey = params.count === 1 ? key : pluralKey;
+        if (params.count === 1) {
+          tries.push(key);
+        } else if (pluralSuffixKey !== key) {
+          tries.push(pluralSuffixKey);
+        }
+        /** Plural branch: use `_suffix` message when present, else fall back to base `{count}` string. */
+        tries.push(key);
+      } else {
+        tries.push(key);
       }
-      let msg = getNested(
-        messages[locale] as Record<string, unknown>,
-        lookupKey
-      );
-      if (!msg) {
-        msg =
-          getNested(messages.en as Record<string, unknown>, lookupKey) ?? key;
+
+      let msg: string | undefined;
+      const localeObj = messages[locale] as Record<string, unknown>;
+      const enObj = messages.en as Record<string, unknown>;
+      for (const lk of tries) {
+        msg = getNested(localeObj, lk) ?? getNested(enObj, lk);
+        if (msg) break;
       }
+      if (!msg) msg = key;
       if (params) {
         for (const [k, v] of Object.entries(params)) {
           msg = msg.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));

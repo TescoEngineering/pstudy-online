@@ -76,4 +76,23 @@ describe("practice-voice-langs", () => {
     const r = resolvePracticeVoiceLangs("nl", "deck-1");
     expect(r).toEqual({ listen: "nl", speak: "nl", source: "default" });
   });
+
+  it("auto-switches language-deck defaults when askFor flips (unless truly customized)", () => {
+    // base = deck content language, topic = learned language.
+    // AskFor=description defaults: listen=base, speak=topic.
+    // AskFor=explanation defaults: listen=topic, speak=base.
+    savePracticeVoiceLangs("deck-1", "nl", "fr", "nl");
+    const a = resolvePracticeVoiceLangs("nl", "deck-1", {
+      fieldOfInterest: "Languages",
+      topic: "French",
+      askFor: "description",
+    });
+    expect(a).toEqual({ listen: "nl", speak: "fr", source: "default" });
+    const b = resolvePracticeVoiceLangs("nl", "deck-1", {
+      fieldOfInterest: "Languages",
+      topic: "French",
+      askFor: "explanation",
+    });
+    expect(b).toEqual({ listen: "fr", speak: "nl", source: "default" });
+  });
 });

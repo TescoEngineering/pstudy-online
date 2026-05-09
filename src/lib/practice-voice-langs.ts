@@ -88,8 +88,9 @@ export function resolvePracticeVoiceLangs(
   }
 ): { listen: string; speak: string; source: "saved" | "default" } {
   const base = defaultVoiceLangFromDeckContent(deckContentLanguageRaw);
+  const isLangDeck = (opts?.fieldOfInterest ?? "").trim() === "Languages";
   const topicLang = (() => {
-    if ((opts?.fieldOfInterest ?? "").trim() !== "Languages") return base;
+    if (!isLangDeck) return base;
     const raw = (opts?.topic ?? "").trim();
     if (!raw || raw.toLowerCase() === "other") return base;
     const asCode = matchSpeechLanguageSelectValue(raw);
@@ -98,13 +99,11 @@ export function resolvePracticeVoiceLangs(
     return byName ? byName.code : base;
   })();
   const defaults = (() => {
-    if ((opts?.fieldOfInterest ?? "").trim() !== "Languages") return { listen: base, speak: base };
+    if (!isLangDeck) return { listen: base, speak: base };
     // Language-learning decks: topic = learned language (Description), deck content language = Explanation.
     // - Speak: match expected answering language (Ask for)
     // - Listen: match prompt language (opposite side that is shown)
-    if (opts?.askFor === "explanation") {
-      return { listen: topicLang, speak: base };
-    }
+    if (opts?.askFor === "explanation") return { listen: topicLang, speak: base };
     // Default to "Ask for description".
     return { listen: base, speak: topicLang };
   })();
@@ -124,12 +123,24 @@ export function resolvePracticeVoiceLangs(
   // Language-learning decks: if prefs were effectively "use deck language for everything",
   // treat them as non-custom defaults and allow the new askFor-based split to apply.
   if (
-    (opts?.fieldOfInterest ?? "").trim() === "Languages" &&
+    isLangDeck &&
     topicLang !== base &&
     loaded.listen === base &&
     loaded.speak === base
   ) {
     return { ...defaults, source: "default" };
+  }
+  // Language-learning decks: if the saved pair matches either of the **auto** default pairs,
+  // treat it as non-custom so flipping Ask-for can auto-switch the languages.
+  if (isLangDeck && topicLang !== base) {
+    const descDefaults = { listen: base, speak: topicLang };
+    const explDefaults = { listen: topicLang, speak: base };
+    const matchesAutoDefaults =
+      (loaded.listen === descDefaults.listen && loaded.speak === descDefaults.speak) ||
+      (loaded.listen === explDefaults.listen && loaded.speak === explDefaults.speak);
+    if (matchesAutoDefaults) {
+      return { ...defaults, source: "default" };
+    }
   }
   return { listen: loaded.listen, speak: loaded.speak, source: "saved" };
 }

@@ -275,6 +275,9 @@ export default function PracticePage() {
   const [straightPreviewOnly, setStraightPreviewOnly] = useState(false);
   const [straightPreviewListenQuestion, setStraightPreviewListenQuestion] = useState(true);
   const [straightPreviewListenAnswer, setStraightPreviewListenAnswer] = useState(true);
+  const [straightPreviewQuestionLang, setStraightPreviewQuestionLang] = useState("en");
+  const [straightPreviewAnswerLang, setStraightPreviewAnswerLang] = useState("en");
+  const straightPreviewVoiceLangTouchedRef = useRef(false);
   const [straightPreviewSession, setStraightPreviewSession] = useState(false);
   const straightPreviewSessionRef = useRef(false);
   straightPreviewSessionRef.current = straightPreviewSession;
@@ -535,26 +538,8 @@ export default function PracticePage() {
   useEffect(() => {
     if (!deck) return;
     voiceLangTouchedRef.current = false;
+    straightPreviewVoiceLangTouchedRef.current = false;
     const key = practiceVoiceLangStorageKey(deck.lineageId, deck.id);
-    const isLangDeck = (deck.fieldOfInterest ?? "").trim() === "Languages";
-    if (isLangDeck) {
-      const base = defaultVoiceLangFromDeckContent(deck.contentLanguage);
-      const topicLang = (() => {
-        const raw = (deck.topic ?? "").trim();
-        if (!raw || raw.toLowerCase() === "other") return base;
-        const asCode = matchSpeechLanguageSelectValue(raw);
-        if (asCode && asCode !== "other") return asCode;
-        const byName = SPEECH_LANGUAGES.find((l) => l.name.toLowerCase() === raw.toLowerCase());
-        return byName ? byName.code : base;
-      })();
-      const next =
-        promptMode === "explanation"
-          ? { listen: topicLang, speak: base }
-          : { listen: base, speak: topicLang };
-      setListenLang(next.listen);
-      setSpeakLang(next.speak);
-      return;
-    }
     const r = resolvePracticeVoiceLangs(deck.contentLanguage, key, {
       fieldOfInterest: deck.fieldOfInterest,
       topic: deck.topic,
@@ -562,6 +547,8 @@ export default function PracticePage() {
     });
     setListenLang(r.listen);
     setSpeakLang(r.speak);
+    setStraightPreviewQuestionLang(r.listen);
+    setStraightPreviewAnswerLang(r.speak);
     savePracticeVoiceLangs(key, r.listen, r.speak, deck.contentLanguage);
   }, [deck?.id, deck?.lineageId, deck?.contentLanguage, deck?.fieldOfInterest, deck?.topic]);
 
@@ -570,25 +557,6 @@ export default function PracticePage() {
     // Only auto-adjust defaults when the user hasn't chosen custom languages for this deck.
     if (voiceLangTouchedRef.current) return;
     const key = practiceVoiceLangStorageKey(deck.lineageId, deck.id);
-    const isLangDeck = (deck.fieldOfInterest ?? "").trim() === "Languages";
-    if (isLangDeck) {
-      const base = defaultVoiceLangFromDeckContent(deck.contentLanguage);
-      const topicLang = (() => {
-        const raw = (deck.topic ?? "").trim();
-        if (!raw || raw.toLowerCase() === "other") return base;
-        const asCode = matchSpeechLanguageSelectValue(raw);
-        if (asCode && asCode !== "other") return asCode;
-        const byName = SPEECH_LANGUAGES.find((l) => l.name.toLowerCase() === raw.toLowerCase());
-        return byName ? byName.code : base;
-      })();
-      const next =
-        promptMode === "explanation"
-          ? { listen: topicLang, speak: base }
-          : { listen: base, speak: topicLang };
-      setListenLang(next.listen);
-      setSpeakLang(next.speak);
-      return;
-    }
     const loaded = loadPracticeVoiceLangs(key);
     const r = resolvePracticeVoiceLangs(deck.contentLanguage, key, {
       fieldOfInterest: deck.fieldOfInterest,
@@ -614,6 +582,19 @@ export default function PracticePage() {
     setSpeakLang(r.speak);
     savePracticeVoiceLangs(key, r.listen, r.speak, deck.contentLanguage);
   }, [promptMode, deck?.id]);
+
+  useEffect(() => {
+    if (!deck) return;
+    if (straightPreviewVoiceLangTouchedRef.current) return;
+    const key = practiceVoiceLangStorageKey(deck.lineageId, deck.id);
+    const r = resolvePracticeVoiceLangs(deck.contentLanguage, key, {
+      fieldOfInterest: deck.fieldOfInterest,
+      topic: deck.topic,
+      askFor: promptMode,
+    });
+    setStraightPreviewQuestionLang(r.listen);
+    setStraightPreviewAnswerLang(r.speak);
+  }, [promptMode, deck?.id, deck?.lineageId, deck?.contentLanguage, deck?.fieldOfInterest, deck?.topic]);
 
   useEffect(() => {
     try {
@@ -1660,17 +1641,17 @@ export default function PracticePage() {
               speakWithCallback(a, () => {
                 if (!guard()) return;
                 pushTimeout(advance, 1000);
-              }, listenLang);
+              }, straightPreviewAnswerLang);
             }, 400);
           } else {
             pushTimeout(advance, 1000);
           }
-        }, listenLang);
+        }, straightPreviewQuestionLang);
       } else if (pA && a) {
         speakWithCallback(a, () => {
           if (!guard()) return;
           pushTimeout(advance, 1000);
-        }, listenLang);
+        }, straightPreviewAnswerLang);
       } else {
         pushTimeout(advance, 4000);
       }
@@ -1694,7 +1675,8 @@ export default function PracticePage() {
     mode,
     straightPreviewListenQuestion,
     straightPreviewListenAnswer,
-    listenLang,
+    straightPreviewQuestionLang,
+    straightPreviewAnswerLang,
     promptMode,
     next,
   ]);
@@ -2389,36 +2371,69 @@ export default function PracticePage() {
               <span className="text-sm text-stone-500">{t("practice.showSttHeardDebug")}</span>
             </label>
           )}
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            <label className="flex items-center gap-2">
-              <span className="text-sm text-stone-600">{t("practice.listenLanguage")}:</span>
-              <select
-                value={listenLang}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  voiceLangTouchedRef.current = true;
-                  setListenLang(v);
-                }}
-                className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-              >
-                <SpeechLanguageSelectOptions />
-              </select>
-            </label>
-            <label className="flex items-center gap-2">
-              <span className="text-sm text-stone-600">{t("practice.speakLanguage")}:</span>
-              <select
-                value={speakLang}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  voiceLangTouchedRef.current = true;
-                  setSpeakLang(v);
-                }}
-                className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
-              >
-                <SpeechLanguageSelectOptions />
-              </select>
-            </label>
-          </div>
+          {mode === "straight" && straightPreviewOnly ? (
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <label className="flex items-center gap-2">
+                <span className="text-sm text-stone-600">{t("practice.straightPreviewQuestionLabel")}:</span>
+                <select
+                  value={straightPreviewQuestionLang}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    straightPreviewVoiceLangTouchedRef.current = true;
+                    setStraightPreviewQuestionLang(v);
+                  }}
+                  className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                >
+                  <SpeechLanguageSelectOptions />
+                </select>
+              </label>
+              <label className="flex items-center gap-2">
+                <span className="text-sm text-stone-600">{t("practice.straightPreviewAnswerLabel")}:</span>
+                <select
+                  value={straightPreviewAnswerLang}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    straightPreviewVoiceLangTouchedRef.current = true;
+                    setStraightPreviewAnswerLang(v);
+                  }}
+                  className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                >
+                  <SpeechLanguageSelectOptions />
+                </select>
+              </label>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+              <label className="flex items-center gap-2">
+                <span className="text-sm text-stone-600">{t("practice.listenLanguage")}:</span>
+                <select
+                  value={listenLang}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    voiceLangTouchedRef.current = true;
+                    setListenLang(v);
+                  }}
+                  className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                >
+                  <SpeechLanguageSelectOptions />
+                </select>
+              </label>
+              <label className="flex items-center gap-2">
+                <span className="text-sm text-stone-600">{t("practice.speakLanguage")}:</span>
+                <select
+                  value={speakLang}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    voiceLangTouchedRef.current = true;
+                    setSpeakLang(v);
+                  }}
+                  className="rounded border border-stone-300 bg-white px-2 py-1 text-sm focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                >
+                  <SpeechLanguageSelectOptions />
+                </select>
+              </label>
+            </div>
+          )}
           {mode === "straight" && speakMode && (
             <details
               className="mt-3 w-full rounded border border-stone-200 bg-stone-50/90 px-3 py-2"
@@ -2826,7 +2841,7 @@ export default function PracticePage() {
           </div>
         )}
 
-        {!showResult ? (
+        {straightPreviewSession && mode === "straight" ? null : !showResult ? (
           <>
             {mode === "straight" ? (
               <>
