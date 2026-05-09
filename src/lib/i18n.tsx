@@ -93,15 +93,15 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       key: string,
       params?: Record<string, string | number> & { count?: number }
     ): string => {
-      const pluralSuffixKey = params?.count !== undefined
-        ? key.replace(/(\w+)$/, "$1_plural")
-        : null;
       const tries: string[] = [];
       if (params?.count !== undefined) {
         if (params.count === 1) {
           tries.push(key);
-        } else if (pluralSuffixKey !== key) {
-          tries.push(pluralSuffixKey);
+        } else {
+          const pluralKey = key.replace(/(\w+)$/, "$1_plural");
+          if (pluralKey !== key) {
+            tries.push(pluralKey);
+          }
         }
         /** Plural branch: use `_suffix` message when present, else fall back to base `{count}` string. */
         tries.push(key);
