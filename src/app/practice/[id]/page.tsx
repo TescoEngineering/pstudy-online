@@ -2808,8 +2808,8 @@ export default function PracticePage() {
             {activeCard.instruction ? (
               <p className="text-sm text-stone-500">{activeCard.instruction}</p>
             ) : null}
-            <div className="mt-2 flex items-start justify-between gap-2">
-              <h2 className="flex-1 text-xl font-semibold text-stone-900">
+            <div className="mt-2 flex min-h-12 items-start justify-between gap-2">
+              <h2 className="flex-1 text-xl font-semibold leading-snug text-stone-900">
                 {promptMode === "description"
                   ? activeCard.explanation
                   : activeCard.description}
@@ -2845,11 +2845,6 @@ export default function PracticePage() {
           <>
             {mode === "straight" ? (
               <>
-                {keywordClozeMode && activeCardHasKeywordTags && (
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-500">
-                    {t("practice.keywordClozePromptLabel")}
-                  </p>
-                )}
                 <form
                   className="space-y-3"
                   onSubmit={(e) => {
@@ -2857,47 +2852,54 @@ export default function PracticePage() {
                     handleEnterToCheck();
                   }}
                 >
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={answer}
-                      onChange={(e) => {
-                        const newVal = e.target.value;
-                        setAnswer(newVal);
-                        if (
-                          keywordClozeMode &&
-                          mode === "straight" &&
-                          splitKeywordTagsForHighlight(String(current?.keywords ?? "")).length > 0
-                        ) {
-                          keywordClozeSpeakAccumRef.current = newVal.includes(
-                            KEYWORD_CLOZE_GAP_MARKER
-                          )
-                            ? ""
-                            : newVal;
-                        }
-                        if (speakMode && newVal === "" && stopListeningRef.current) {
-                          stopListeningRef.current();
-                          startSpeakListening();
-                        }
-                      }}
-                      placeholder={t("practice.yourAnswer")}
-                      className="min-w-0 flex-1 rounded-lg border border-stone-300 px-4 py-3 text-lg focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary"
-                      autoFocus
-                      enterKeyHint="done"
-                    />
-                    {speakMode && (
-                      <span
-                        className={`flex shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-sm ${
-                          isListening
-                            ? "bg-emerald-100 text-emerald-700"
-                            : "bg-stone-100 text-stone-500"
-                        }`}
-                        title={isListening ? t("practice.straightSpeakListeningTitle") : t("practice.straightSpeakModeTitle")}
-                      >
-                        <span className="h-2 w-2 rounded-full bg-current" />
-                        {isListening ? t("practice.listening") : t("practice.speakOn")}
-                      </span>
+                  <div className="card mb-6">
+                    {keywordClozeMode && activeCardHasKeywordTags && (
+                      <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-stone-500">
+                        {t("practice.keywordClozePromptLabel")}
+                      </p>
                     )}
+                    <div className="flex min-h-28 items-stretch gap-2">
+                      <input
+                        type="text"
+                        value={answer}
+                        onChange={(e) => {
+                          const newVal = e.target.value;
+                          setAnswer(newVal);
+                          if (
+                            keywordClozeMode &&
+                            mode === "straight" &&
+                            splitKeywordTagsForHighlight(String(current?.keywords ?? "")).length > 0
+                          ) {
+                            keywordClozeSpeakAccumRef.current = newVal.includes(
+                              KEYWORD_CLOZE_GAP_MARKER
+                            )
+                              ? ""
+                              : newVal;
+                          }
+                          if (speakMode && newVal === "" && stopListeningRef.current) {
+                            stopListeningRef.current();
+                            startSpeakListening();
+                          }
+                        }}
+                        placeholder={t("practice.yourAnswer")}
+                        className="min-h-0 min-w-0 flex-1 self-stretch rounded-lg border border-stone-300 bg-white px-4 py-4 font-sans text-xl font-semibold leading-snug text-stone-900 placeholder:font-normal placeholder:text-stone-400 focus:border-pstudy-primary focus:outline-none focus:ring-2 focus:ring-pstudy-primary"
+                        autoFocus
+                        enterKeyHint="done"
+                      />
+                      {speakMode && (
+                        <span
+                          className={`flex shrink-0 self-center items-center gap-1 rounded-lg px-3 py-2 text-sm ${
+                            isListening
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-stone-100 text-stone-500"
+                          }`}
+                          title={isListening ? t("practice.straightSpeakListeningTitle") : t("practice.straightSpeakModeTitle")}
+                        >
+                          <span className="h-2 w-2 rounded-full bg-current" />
+                          {isListening ? t("practice.listening") : t("practice.speakOn")}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <button
                     type="submit"

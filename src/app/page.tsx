@@ -56,29 +56,44 @@ export default function HomePage() {
           🇪🇺 Made in Europe · GDPR-native · Hosted in the EU
         </div>
 
-        <section className="mt-14">
-          <div className="grid gap-4 md:grid-cols-3">
-            <figure className="rounded-xl border border-stone-200 bg-white/60 p-4">
-              <div className="flex aspect-[4/3] items-center justify-center rounded-lg border border-dashed border-stone-300 bg-stone-50 text-xs font-medium text-stone-500">
-                /public/screenshots/practice.png
+        <section className="mt-14 text-left">
+          <div className="grid w-full gap-3 md:grid-cols-3 md:gap-4">
+            <figure className="text-left">
+              <div className="relative h-48 overflow-hidden rounded-xl sm:h-52 md:h-60 lg:h-64">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/screenshots/practice.jpg"
+                  alt=""
+                  className="h-full w-full object-contain object-left"
+                />
               </div>
-              <figcaption className="mt-2 text-sm text-stone-600">
+              <figcaption className="mt-3 text-sm text-stone-600">
                 Practice with straight-answer mode
               </figcaption>
             </figure>
-            <figure className="rounded-xl border border-stone-200 bg-white/60 p-4">
-              <div className="flex aspect-[4/3] items-center justify-center rounded-lg border border-dashed border-stone-300 bg-stone-50 text-xs font-medium text-stone-500">
-                /public/screenshots/flashcard.png
+            <figure className="text-left">
+              <div className="relative h-48 overflow-hidden rounded-xl sm:h-52 md:h-60 lg:h-64">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/screenshots/flashcard.jpg"
+                  alt=""
+                  className="h-full w-full object-contain object-left"
+                />
               </div>
-              <figcaption className="mt-2 text-sm text-stone-600">
+              <figcaption className="mt-3 text-sm text-stone-600">
                 Flip flashcards on any device
               </figcaption>
             </figure>
-            <figure className="rounded-xl border border-stone-200 bg-white/60 p-4">
-              <div className="flex aspect-[4/3] items-center justify-center rounded-lg border border-dashed border-stone-300 bg-stone-50 text-xs font-medium text-stone-500">
-                /public/screenshots/multiple-choice.png
+            <figure className="text-left">
+              <div className="relative h-48 overflow-hidden rounded-xl sm:h-52 md:h-60 lg:h-64">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/screenshots/multiple-choice.jpg"
+                  alt=""
+                  className="h-full w-full object-contain object-left"
+                />
               </div>
-              <figcaption className="mt-2 text-sm text-stone-600">
+              <figcaption className="mt-3 text-sm text-stone-600">
                 Multiple choice with images and maps
               </figcaption>
             </figure>
