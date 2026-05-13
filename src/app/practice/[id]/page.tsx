@@ -16,6 +16,7 @@ import {
   stopSpeaking,
   startListening,
   isSpeechRecognitionSupported,
+  isSpeechRecognitionMissingLikelyInsecurePage,
   prepareSpeechSynthesis,
   resolveDeckOnlyTranscript,
   applyUserAliasesToTranscript,
@@ -189,6 +190,9 @@ export default function PracticePage() {
   const [wrongItems, setWrongItems] = useState<PStudyItem[]>([]);
   const wrongItemsRef = useRef(wrongItems);
   wrongItemsRef.current = wrongItems;
+  /** Used by `startSession` to avoid rebuilding / re-shuffling when the deck-sync effect already populated `list`. */
+  const listLenRef = useRef(0);
+  listLenRef.current = list.length;
   const [originalTotal, setOriginalTotal] = useState(0);
   const [listenMode, setListenMode] = useState(false);
   const [speakMode, setSpeakMode] = useState(false);
@@ -339,7 +343,38 @@ export default function PracticePage() {
     setStraightPreviewSession(mode === "straight" && straightPreviewOnly);
     setSessionPhase("active");
     setExerciseSetupOpen(false);
-  }, [resetSessionStats, mode, straightPreviewOnly]);
+    /**
+     * After a repeat-mistakes round, `next()` can shrink `list` to [] before summary. Returning
+     * to practice via "Practice all again" only flipped phase + stats — the deck-sync effect does
+     * not re-run (deck/order/mode/filter unchanged), so `list` stayed empty. Rebuild from `deck`
+     * using the same rules as that effect.
+     */
+    keywordClozeSeedKeyRef.current = "";
+    if (!deck || deck.items.length === 0) {
+      setList([]);
+      setOriginalTotal(0);
+      return;
+    }
+    /** Deck-sync effect already built `list` (e.g. first "Start practice"); do not reshuffle here. */
+    if (listLenRef.current > 0) {
+      return;
+    }
+    let ordered =
+      order === "random" ? shuffle([...deck.items]) : [...deck.items];
+    if (mode === "flashcard" && flashcardCardFilter === "unknown") {
+      ordered = ordered.filter((it) => !isItemKnown(id, it.id));
+    }
+    setList(ordered);
+    setOriginalTotal(ordered.length);
+  }, [
+    resetSessionStats,
+    mode,
+    straightPreviewOnly,
+    deck,
+    order,
+    flashcardCardFilter,
+    id,
+  ]);
 
   /** Invalidates in-flight async `startSpeakListening` (fetch + mic) when the item or phase changes. */
   const listenSeqRef = useRef(0);
@@ -1175,22 +1210,42 @@ export default function PracticePage() {
        * Chrome Web Speech commonly emits "No speech detected." after a few seconds of silence,
        * ending the session. If we just stop, the next short word is often missed and only appears
        * when the user speaks again. Auto-restart quietly so the first word after a pause is captured.
+       *
+       * Chromium also emits `error === "network"` (surfaced as our long "unreachable" copy) when
+       * Google's cloud STT hiccups, VPN/corporate filters block it, or sessions restart often. That
+       * is usually transient — same quiet restart as no-speech, slightly longer backoff, no toast
+       * spam (see `speech.ts` recognition.onerror).
        */
-      const isNoSpeech =
-        typeof msg === "string" && msg.toLowerCase().includes("no speech detected");
-      browserSttTrace("practice.handleError", { seq, msg: String(msg).slice(0, 200), isNoSpeech });
-      if (!isNoSpeech) {
+      const m = typeof msg === "string" ? msg.toLowerCase() : "";
+      const isNoSpeech = m.includes("no speech detected");
+      const isBrowserSttNetwork =
+        m.includes("unreachable") ||
+        m.includes("speech-recognition service") ||
+        m.includes("speech recognition error: network");
+      const quietRestart = isNoSpeech || isBrowserSttNetwork;
+      browserSttTrace("practice.handleError", {
+        seq,
+        msg: String(msg).slice(0, 200),
+        isNoSpeech,
+        isBrowserSttNetwork,
+      });
+      if (!quietRestart) {
         toast.error(msg);
       }
       setIsListening(false);
       stopListeningRef.current = null;
 
-      if (isNoSpeech) {
+      if (quietRestart) {
         if (listenRestartTimerRef.current) {
           clearTimeout(listenRestartTimerRef.current);
           listenRestartTimerRef.current = null;
         }
-        browserSttTrace("practice.scheduleRestart", { kind: "no-speech", seq, delayMs: 250 });
+        const delayMs = isBrowserSttNetwork ? 900 : 250;
+        browserSttTrace("practice.scheduleRestart", {
+          kind: isBrowserSttNetwork ? "network" : "no-speech",
+          seq,
+          delayMs,
+        });
         listenRestartTimerRef.current = setTimeout(() => {
           listenRestartTimerRef.current = null;
           if (seq !== listenSeqRef.current) return;
@@ -1203,9 +1258,12 @@ export default function PracticePage() {
           ) {
             return;
           }
-          browserSttTrace("practice.runRestart", { kind: "no-speech", seq });
+          browserSttTrace("practice.runRestart", {
+            kind: isBrowserSttNetwork ? "network" : "no-speech",
+            seq,
+          });
           startSpeakListening();
-        }, 250);
+        }, delayMs);
       }
     };
 
@@ -1261,7 +1319,14 @@ export default function PracticePage() {
       (useStraightGoogle && !keywordClozeAnswerWithTags) ||
       (afterDelayFlashcard && useFlashcardGoogle);
 
-    if (tryCloudGoogle) {
+    /**
+     * Only hit the status endpoint when the server might actually expose Google STT (`sttGoogle`
+     * from the mount-time probe). Otherwise we would still `await fetch(...)` on every listen start
+     * even when Google is disabled (e.g. production Vercel without keys). That async gap breaks
+     * Chromium’s user-activation chain, so `SpeechRecognition.start()` can silently fail in Edge
+     * after “Start practice” — browser STT never starts even though the UI shows Speak on.
+     */
+    if (tryCloudGoogle && sttGoogle) {
       listenStatusAbortRef.current = new AbortController();
       const { signal } = listenStatusAbortRef.current;
       try {
@@ -1308,7 +1373,11 @@ export default function PracticePage() {
       if (!isSpeechRecognitionSupported()) {
         setIsListening(false);
         stopListeningRef.current = null;
-        toast.error(t("practice.speechInputUnavailable"));
+        toast.error(
+          isSpeechRecognitionMissingLikelyInsecurePage()
+            ? t("practice.speechInputUnavailableInsecure")
+            : t("practice.speechInputUnavailable")
+        );
         return;
       }
       stop = startListening({
@@ -1361,6 +1430,7 @@ export default function PracticePage() {
     deckAnswerVocabulary,
     flashcardBrowseOnly,
     listenMode,
+    sttGoogle,
   ]);
 
   // When item loads: if listenMode, speak the question (only once per item). If speakMode (and straight/flashcard), start listening after TTS ends.
@@ -1898,17 +1968,18 @@ export default function PracticePage() {
         next();
       } else if (mode === "straight") {
         handleEnterToCheck();
-      } else if (mode === "multiple-choice" && answer.trim()) {
+      } else if (mode === "multiple-choice" && answerRef.current.trim()) {
         handleEnterToCheck();
       }
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
   }, [
+    // Intentionally omit `answer`: Speak/STT updates it often; re-subscribing the listener every
+    // tick can drop Enter between removeEventListener and addEventListener.
     showResult,
     next,
     mode,
-    answer,
     handleEnterToCheck,
     flashcardRevealed,
     revealFlashcard,

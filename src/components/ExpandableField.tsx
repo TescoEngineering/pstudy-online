@@ -4,7 +4,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react
 import { useTranslation } from "@/lib/i18n";
 import { splitKeywordTags, splitKeywordTagsForHighlight } from "@/lib/flashcard";
 import { KeywordHighlight } from "@/components/KeywordHighlight";
-import { isSpeechRecognitionSupported, startListening } from "@/lib/speech";
+import { isSpeechRecognitionSupported, isSpeechRecognitionMissingLikelyInsecurePage, startListening } from "@/lib/speech";
 import { useToast } from "@/components/Toast";
 import { ContextHint } from "@/components/ContextHint";
 import { SpeechLanguageSelectOptions } from "@/components/SpeechLanguageSelectOptions";
@@ -165,7 +165,11 @@ export function ExpandableField({
   const startDictation = useCallback(() => {
     if (!dictation) return;
     if (!isSpeechRecognitionSupported()) {
-      toast.error(t("practice.speechInputUnavailable"));
+      toast.error(
+        isSpeechRecognitionMissingLikelyInsecurePage()
+          ? t("practice.speechInputUnavailableInsecure")
+          : t("practice.speechInputUnavailable")
+      );
       return;
     }
     const lang = resolveDictationLang(dictationLang);
@@ -225,7 +229,11 @@ export function ExpandableField({
       if (stop) {
         dictationStopRef.current = stop;
       } else {
-        toast.error(t("practice.speechInputUnavailable"));
+        toast.error(
+          isSpeechRecognitionMissingLikelyInsecurePage()
+            ? t("practice.speechInputUnavailableInsecure")
+            : t("practice.speechInputUnavailable")
+        );
         stopDictation();
       }
     };

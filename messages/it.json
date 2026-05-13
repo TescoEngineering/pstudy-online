@@ -238,7 +238,8 @@
     "straightPreviewAgain": "Anteprima di nuovo",
     "straightPreviewSwitchToPractice": "Passa alla pratica",
     "straightPreviewQuestionLabel": "Domanda",
-    "straightPreviewAnswerLabel": "Risposta"
+    "straightPreviewAnswerLabel": "Risposta",
+    "speechInputUnavailableInsecure": "Il riconoscimento vocale non è disponibile per questo indirizzo: apri PSTUDY con HTTPS (es. il link di produzione) o http://localhost, non con http:// verso un altro PC sulla rete. Google usa sempre HTTPS."
   },
   "result": {
     "complete": "Esercitazione completata",

@@ -533,6 +533,16 @@ export function isSpeechRecognitionSupported(): boolean {
   );
 }
 
+/**
+ * Chromium only exposes Web Speech recognition in a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts)
+ * (HTTPS, `http://localhost`, `http://127.0.0.1`, etc.). Plain `http://` to a LAN hostname/IP often hides the API — unlike
+ * `google.com` (always HTTPS). Use this to show a clearer error than “use Edge” when the user is already on Edge.
+ */
+export function isSpeechRecognitionMissingLikelyInsecurePage(): boolean {
+  if (typeof window === "undefined") return false;
+  return !window.isSecureContext && !isSpeechRecognitionSupported();
+}
+
 type SpeechRecognitionOptions = {
   lang?: string;
   continuous?: boolean;
