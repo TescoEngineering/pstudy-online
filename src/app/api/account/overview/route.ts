@@ -9,7 +9,9 @@ function isOrganizationSchemaMissingError(err: unknown): boolean {
   const code = String(e?.code ?? "");
   if (code === "PGRST205") return true;
   if (msg.includes("schema cache") && msg.includes("organization")) return true;
-  if (msg.includes("does not exist") && msg.includes("organization")) return true;
+  if (msg.includes("does not exist") && (msg.includes("organization") || msg.includes("organization_group"))) {
+    return true;
+  }
   return false;
 }
 
@@ -147,6 +149,43 @@ export async function GET() {
       }
     }
     communities.sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" }));
+
+    const { data: gmRows, error: gmErr } = await supabase
+      .from("organization_group_members")
+      .select("organization_groups(organization_id, name)")
+      .eq("user_id", user.id);
+
+    if (gmErr) {
+      if (!isOrganizationSchemaMissingError(gmErr)) {
+        return bad(gmErr.message, 500);
+      }
+    } else if (gmRows) {
+      type GmRow = {
+        organization_groups:
+          | { organization_id: string; name: string }
+          | { organization_id: string; name: string }[]
+          | null;
+      };
+      const namesByOrg = new Map<string, string[]>();
+      for (const row of gmRows as GmRow[]) {
+        const g = Array.isArray(row.organization_groups)
+          ? row.organization_groups[0]
+          : row.organization_groups;
+        if (!g) continue;
+        const list = namesByOrg.get(g.organization_id) ?? [];
+        list.push(g.name);
+        namesByOrg.set(g.organization_id, list);
+      }
+      for (const c of communities) {
+        if (c.role !== "student") continue;
+        const list = namesByOrg.get(c.organizationId);
+        if (list?.length) {
+          const unique = [...new Set(list)];
+          unique.sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
+          c.myGroups = unique;
+        }
+      }
+    }
   }
 
   const payload: AccountOverviewPayload = {

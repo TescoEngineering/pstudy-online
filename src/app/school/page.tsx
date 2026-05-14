@@ -18,6 +18,7 @@ import {
   type OrganizationMembership,
   type SchoolDeckListRow,
 } from "@/lib/supabase/organizations";
+import { OrgSchoolGroupsReadonly } from "@/components/org/OrgSchoolGroupsReadonly";
 export default function SchoolLibraryPage() {
   const router = useRouter();
   const { t } = useTranslation();
@@ -141,82 +142,87 @@ export default function SchoolLibraryPage() {
           <div className="card text-center text-stone-600">
             <p>{t("school.noMembership")}</p>
           </div>
-        ) : rows.length === 0 ? (
-          <div className="card text-center text-stone-600">
-            <p>{t("community.noSharedDecks")}</p>
-          </div>
         ) : (
-          <ul className="space-y-3">
-            {rows.map((row) => {
-              const role = myRoleByOrg.get(row.organizationId);
-              const canVerify =
-                row.visibility === "school" &&
-                !row.verifiedAt &&
-                role &&
-                (role === "teacher" || role === "admin");
-              const verifyBusy =
-                verifying?.deckId === row.deckId && verifying?.orgId === row.organizationId;
+          <>
+            <OrgSchoolGroupsReadonly memberships={memberships} t={t} />
+            {rows.length === 0 ? (
+              <div className="card text-center text-stone-600">
+                <p>{t("community.noSharedDecks")}</p>
+              </div>
+            ) : (
+              <ul className="space-y-3">
+                {rows.map((row) => {
+                  const role = myRoleByOrg.get(row.organizationId);
+                  const canVerify =
+                    row.visibility === "school" &&
+                    !row.verifiedAt &&
+                    role &&
+                    (role === "teacher" || role === "admin");
+                  const verifyBusy =
+                    verifying?.deckId === row.deckId && verifying?.orgId === row.organizationId;
 
-              return (
-                <li
-                  key={`${row.shareId}-${row.deckId}`}
-                  className="card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div>
-                    <span className="font-semibold text-stone-900">{row.deckTitle}</span>
-                    <span className="ml-2 text-sm text-stone-500">· {row.organizationName}</span>
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                          row.visibility === "school"
-                            ? "bg-sky-100 text-sky-900"
-                            : "bg-violet-100 text-violet-900"
-                        }`}
-                      >
-                        {row.visibility === "school"
-                          ? t("school.visibilitySchool")
-                          : t("school.visibilityTeachersOnly")}
-                      </span>
-                      {row.visibility === "school" ? (
-                        row.verifiedAt ? (
-                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-                            {t("school.verifiedBadge")}
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
-                            {t("school.pendingVerification")}
-                          </span>
-                        )
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Link href={`/deck/${row.deckId}`} className="btn-secondary text-sm">
-                      {t("school.openDeck")}
-                    </Link>
-                    <button
-                      type="button"
-                      className="btn-primary text-sm disabled:opacity-50"
-                      disabled={copyingId === row.deckId}
-                      onClick={() => void handleCopy(row.deckId)}
+                  return (
+                    <li
+                      key={`${row.shareId}-${row.deckId}`}
+                      className="card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
                     >
-                      {copyingId === row.deckId ? t("community.copying") : t("school.copyToMyDecks")}
-                    </button>
-                    {canVerify ? (
-                      <button
-                        type="button"
-                        className="btn-secondary text-sm disabled:opacity-50"
-                        disabled={verifyBusy}
-                        onClick={() => void handleVerify(row.deckId, row.organizationId)}
-                      >
-                        {verifyBusy ? t("common.loading") : t("school.verifyDeck")}
-                      </button>
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                      <div>
+                        <span className="font-semibold text-stone-900">{row.deckTitle}</span>
+                        <span className="ml-2 text-sm text-stone-500">· {row.organizationName}</span>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                              row.visibility === "school"
+                                ? "bg-sky-100 text-sky-900"
+                                : "bg-violet-100 text-violet-900"
+                            }`}
+                          >
+                            {row.visibility === "school"
+                              ? t("school.visibilitySchool")
+                              : t("school.visibilityTeachersOnly")}
+                          </span>
+                          {row.visibility === "school" ? (
+                            row.verifiedAt ? (
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                                {t("school.verifiedBadge")}
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
+                                {t("school.pendingVerification")}
+                              </span>
+                            )
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Link href={`/deck/${row.deckId}`} className="btn-secondary text-sm">
+                          {t("school.openDeck")}
+                        </Link>
+                        <button
+                          type="button"
+                          className="btn-primary text-sm disabled:opacity-50"
+                          disabled={copyingId === row.deckId}
+                          onClick={() => void handleCopy(row.deckId)}
+                        >
+                          {copyingId === row.deckId ? t("community.copying") : t("school.copyToMyDecks")}
+                        </button>
+                        {canVerify ? (
+                          <button
+                            type="button"
+                            className="btn-secondary text-sm disabled:opacity-50"
+                            disabled={verifyBusy}
+                            onClick={() => void handleVerify(row.deckId, row.organizationId)}
+                          >
+                            {verifyBusy ? t("common.loading") : t("school.verifyDeck")}
+                          </button>
+                        ) : null}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </>
         )}
       </main>
     </div>

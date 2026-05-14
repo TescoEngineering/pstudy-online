@@ -272,5 +272,59 @@
   },
   "banner": {
     "underConstruction": "PSTUDY Online est en cours de développement. Les fonctionnalités peuvent changer."
+  },
+  "account": {
+    "myGroupsInOrg": "Mes groupes",
+    "myGroupsEmpty": "Aucun groupe dans cette organisation pour le moment."
+  },
+  "school": {
+    "groupsSectionTitle": "Groupes",
+    "groupsSectionHint": "Annuaire en lecture seule des groupes et des membres pour chaque organisation dont vous êtes enseignant ou administrateur. L’appartenance aux groupes est gérée par les administrateurs de l’organisation."
+  },
+  "orgAdmin": {
+    "tabMembers": "Membres",
+    "tabGroups": "Groupes",
+    "inviteReusedPending": "Une invitation en attente existe déjà pour cette adresse — aucun e-mail en double n’a été envoyé."
+  },
+  "orgGroups": {
+    "group": "Groupe",
+    "groups": "Groupes",
+    "groupsTitle": "Groupes",
+    "createGroup": "Créer un groupe",
+    "editGroup": "Modifier le groupe",
+    "edit": "Modifier",
+    "groupName": "Nom",
+    "groupDescription": "Description (facultatif)",
+    "groupMembers": "Membres du groupe",
+    "myGroups": "Mes groupes",
+    "addToGroup": "Ajouter au groupe",
+    "removeFromGroup": "Retirer du groupe",
+    "sendInvitesAndQueue": "Envoyer les invitations et mettre en file",
+    "skipThese": "Ignorer ceux-ci",
+    "noGroupsYet": "Aucun groupe pour le moment. Créez-en un pour organiser les membres.",
+    "memberCount": "{count} membre",
+    "memberCount_plural": "{count} membres",
+    "deleteConfirm": "Supprimer le groupe « {name} » ? Les membres restent dans l’organisation ; seul ce groupe est supprimé.",
+    "groupCreated": "Groupe créé.",
+    "groupUpdated": "Groupe enregistré.",
+    "groupDeleted": "Groupe supprimé.",
+    "nameRequired": "Saisissez un nom de groupe.",
+    "searchMembers": "Rechercher par e-mail…",
+    "bulkPasteEmails": "Coller des e-mails…",
+    "pastePlaceholder": "Une adresse par ligne, ou séparées par des virgules ou des tabulations",
+    "previewPaste": "Aperçu",
+    "willAddExisting": "{count} membre déjà dans l’organisation sera ajouté à ce groupe.",
+    "willAddExisting_plural": "{count} membres déjà dans l’organisation seront ajoutés à ce groupe.",
+    "skippedInvalidEmails": "{count} ligne ignorée car ce ne semblait pas être une adresse e-mail.",
+    "skippedInvalidEmails_plural": "{count} lignes ignorées car elles ne semblaient pas être des adresses e-mail.",
+    "notMembersIntro": "{count} adresse e-mail n’est pas encore membre de cette organisation :",
+    "notMembersIntro_plural": "{count} adresses e-mail ne sont pas encore membres de cette organisation :",
+    "applyInOrgOnly": "Ajouter uniquement les membres de l’organisation",
+    "addedNToGroup": "{count} utilisateur ajouté au groupe.",
+    "addedNToGroup_plural": "{count} utilisateurs ajoutés au groupe.",
+    "removedFromGroup": "Retiré du groupe.",
+    "addFromDirectory": "Sélectionner dans la liste des membres",
+    "save": "Enregistrer",
+    "invitesAndQueueDone": "Invitations : {created} nouvelles, {reused} en attente existantes (pas d’e-mail en double). Mise en file pour ajout à l’acceptation."
   }
 }

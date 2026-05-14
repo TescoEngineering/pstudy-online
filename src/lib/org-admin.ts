@@ -1,18 +1,27 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OrganizationRole } from "@/types/organization";
 
-export async function isOrgAdmin(
+export async function getOrgMembershipRole(
   admin: SupabaseClient,
   userId: string,
   organizationId: string
-): Promise<boolean> {
+): Promise<OrganizationRole | null> {
   const { data } = await admin
     .from("organization_members")
     .select("role")
     .eq("organization_id", organizationId)
     .eq("user_id", userId)
     .maybeSingle();
-  return (data?.role as string | undefined) === "admin";
+  const r = data?.role as OrganizationRole | undefined;
+  return r === "student" || r === "teacher" || r === "admin" ? r : null;
+}
+
+export async function isOrgAdmin(
+  admin: SupabaseClient,
+  userId: string,
+  organizationId: string
+): Promise<boolean> {
+  return (await getOrgMembershipRole(admin, userId, organizationId)) === "admin";
 }
 
 export async function listAdminOrganizations(

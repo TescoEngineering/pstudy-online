@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { applyOrganizationGroupInviteQueue } from "@/lib/org-group-queue";
 
 function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -51,6 +52,7 @@ export async function POST(request: NextRequest) {
 
   const organizationId = invite.organization_id as string;
   const role = invite.role as string;
+  const invitedEmailRaw = String(invite.email ?? "");
 
   const { data: existing } = await admin
     .from("organization_members")
@@ -68,6 +70,11 @@ export async function POST(request: NextRequest) {
         accepted_user_id: user.id,
       })
       .eq("id", invite.id);
+    try {
+      await applyOrganizationGroupInviteQueue(admin, organizationId, invitedEmailRaw, user.id);
+    } catch (e) {
+      return bad(e instanceof Error ? e.message : "Could not apply group memberships", 500);
+    }
     return NextResponse.json({ ok: true, alreadyMember: true });
   }
 
@@ -95,6 +102,12 @@ export async function POST(request: NextRequest) {
       accepted_user_id: user.id,
     })
     .eq("id", invite.id);
+
+  try {
+    await applyOrganizationGroupInviteQueue(admin, organizationId, invitedEmailRaw, user.id);
+  } catch (e) {
+    return bad(e instanceof Error ? e.message : "Could not apply group memberships", 500);
+  }
 
   return NextResponse.json({ ok: true, alreadyMember: false });
 }

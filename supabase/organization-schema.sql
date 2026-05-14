@@ -41,11 +41,15 @@ CREATE TABLE IF NOT EXISTS organization_groups (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
+  description TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_organization_groups_org ON organization_groups(organization_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS organization_groups_org_name_lower_unique
+  ON organization_groups (organization_id, (lower(trim(name))));
 
 CREATE TABLE IF NOT EXISTS organization_group_members (
   group_id UUID NOT NULL REFERENCES organization_groups(id) ON DELETE CASCADE,
@@ -55,6 +59,27 @@ CREATE TABLE IF NOT EXISTS organization_group_members (
 );
 
 CREATE INDEX IF NOT EXISTS idx_organization_group_members_user ON organization_group_members(user_id);
+
+-- Pending group membership when a not-yet-member accepts an org invite (API + service role only).
+CREATE TABLE IF NOT EXISTS organization_group_invite_queue (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  group_id UUID NOT NULL REFERENCES organization_groups(id) ON DELETE CASCADE,
+  email_normalized TEXT NOT NULL,
+  queued_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  applied_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_org_group_invite_queue_org_email
+  ON organization_group_invite_queue (organization_id, email_normalized)
+  WHERE applied_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS organization_group_invite_queue_pending_unique
+  ON organization_group_invite_queue (group_id, email_normalized)
+  WHERE applied_at IS NULL;
+
+ALTER TABLE organization_group_invite_queue ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS deck_organization_shares (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -215,10 +240,18 @@ CREATE POLICY "Admins can remove members"
 ALTER TABLE organization_groups ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Members can view groups in org" ON organization_groups;
-CREATE POLICY "Members can view groups in org"
+DROP POLICY IF EXISTS "Members view groups by role" ON organization_groups;
+CREATE POLICY "Members view groups by role"
   ON organization_groups FOR SELECT
   TO authenticated
-  USING (public.is_organization_member(organization_id, auth.uid()));
+  USING (
+    public.organization_role(organization_id, auth.uid()) IN ('admin', 'teacher')
+    OR EXISTS (
+      SELECT 1 FROM organization_group_members gm
+      WHERE gm.group_id = organization_groups.id
+        AND gm.user_id = auth.uid()
+    )
+  );
 
 DROP POLICY IF EXISTS "Admins manage groups" ON organization_groups;
 CREATE POLICY "Admins manage groups"
@@ -234,13 +267,18 @@ CREATE POLICY "Admins manage groups"
 ALTER TABLE organization_group_members ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Members can view group membership" ON organization_group_members;
-CREATE POLICY "Members can view group membership"
+DROP POLICY IF EXISTS "Members view group membership by role" ON organization_group_members;
+CREATE POLICY "Members view group membership by role"
   ON organization_group_members FOR SELECT
   TO authenticated
   USING (
     EXISTS (
       SELECT 1 FROM organization_groups g
       WHERE g.id = organization_group_members.group_id
+        AND (
+          public.organization_role(g.organization_id, auth.uid()) IN ('admin', 'teacher')
+          OR organization_group_members.user_id = auth.uid()
+        )
         AND public.is_organization_member(g.organization_id, auth.uid())
     )
   );

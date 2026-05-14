@@ -207,12 +207,20 @@ export default function AccountPage() {
                   {data.communities.map((c) => (
                     <li
                       key={c.organizationId}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-stone-50/90 px-4 py-3"
+                      className="rounded-xl bg-stone-50/90 px-4 py-3"
                     >
-                      <span className="font-medium text-stone-900">{c.name}</span>
-                      <span className="text-sm text-stone-600">
-                        {communityRoleLabel(c.role, t)}
-                      </span>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-medium text-stone-900">{c.name}</span>
+                        <span className="text-sm text-stone-600">
+                          {communityRoleLabel(c.role, t)}
+                        </span>
+                      </div>
+                      {c.role === "student" ? (
+                        <p className="mb-0 mt-2 text-sm text-stone-600">
+                          <span className="font-medium text-stone-700">{t("account.myGroupsInOrg")}: </span>
+                          {c.myGroups && c.myGroups.length > 0 ? c.myGroups.join(", ") : t("account.myGroupsEmpty")}
+                        </p>
+                      ) : null}
                     </li>
                   ))}
                 </ul>

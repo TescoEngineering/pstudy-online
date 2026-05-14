@@ -302,5 +302,59 @@
   },
   "banner": {
     "underConstruction": "PSTUDY Online ist im Aufbau. Funktionen können sich ändern."
+  },
+  "account": {
+    "myGroupsInOrg": "Meine Gruppen",
+    "myGroupsEmpty": "Noch keine Gruppen in dieser Organisation."
+  },
+  "school": {
+    "groupsSectionTitle": "Gruppen",
+    "groupsSectionHint": "Schreibgeschützte Übersicht der Gruppen und Mitglieder in jeder Organisation, in der Sie als Lehrkraft oder Admin tätig sind. Gruppenmitgliedschaften werden von Organisations-Admins verwaltet."
+  },
+  "orgAdmin": {
+    "tabMembers": "Mitglieder",
+    "tabGroups": "Gruppen",
+    "inviteReusedPending": "Für diese Adresse besteht bereits eine ausstehende Einladung — es wurde keine zweite E-Mail gesendet."
+  },
+  "orgGroups": {
+    "group": "Gruppe",
+    "groups": "Gruppen",
+    "groupsTitle": "Gruppen",
+    "createGroup": "Gruppe erstellen",
+    "editGroup": "Gruppe bearbeiten",
+    "edit": "Bearbeiten",
+    "groupName": "Name",
+    "groupDescription": "Beschreibung (optional)",
+    "groupMembers": "Gruppenmitglieder",
+    "myGroups": "Meine Gruppen",
+    "addToGroup": "Zur Gruppe hinzufügen",
+    "removeFromGroup": "Aus Gruppe entfernen",
+    "sendInvitesAndQueue": "Einladungen senden und einreihen",
+    "skipThese": "Diese überspringen",
+    "noGroupsYet": "Noch keine Gruppen. Legen Sie eine an, um Mitglieder zu strukturieren.",
+    "memberCount": "{count} Mitglied",
+    "memberCount_plural": "{count} Mitglieder",
+    "deleteConfirm": "Gruppe „{name}“ löschen? Mitglieder bleiben in der Organisation; nur diese Gruppe wird entfernt.",
+    "groupCreated": "Gruppe erstellt.",
+    "groupUpdated": "Gruppe gespeichert.",
+    "groupDeleted": "Gruppe gelöscht.",
+    "nameRequired": "Geben Sie einen Gruppennamen ein.",
+    "searchMembers": "Nach E-Mail suchen…",
+    "bulkPasteEmails": "E-Mails einfügen…",
+    "pastePlaceholder": "Eine E-Mail pro Zeile oder durch Kommas/Tabs getrennt",
+    "previewPaste": "Vorschau",
+    "willAddExisting": "{count} Organisationsmitglied wird dieser Gruppe hinzugefügt.",
+    "willAddExisting_plural": "{count} Organisationsmitglieder werden dieser Gruppe hinzugefügt.",
+    "skippedInvalidEmails": "{count} Zeile wurde übersprungen (keine gültige E-Mail-Adresse).",
+    "skippedInvalidEmails_plural": "{count} Zeilen wurden übersprungen (keine gültigen E-Mail-Adressen).",
+    "notMembersIntro": "{count} E-Mail-Adresse ist noch kein Mitglied dieser Organisation:",
+    "notMembersIntro_plural": "{count} E-Mail-Adressen sind noch keine Mitglieder dieser Organisation:",
+    "applyInOrgOnly": "Nur Organisationsmitglieder hinzufügen",
+    "addedNToGroup": "{count} Person wurde der Gruppe hinzugefügt.",
+    "addedNToGroup_plural": "{count} Personen wurden der Gruppe hinzugefügt.",
+    "removedFromGroup": "Aus der Gruppe entfernt.",
+    "addFromDirectory": "Aus Mitgliederliste auswählen",
+    "save": "Speichern",
+    "invitesAndQueueDone": "Einladungen: {created} neu, {reused} bestehend ausstehend (keine doppelte E-Mail). Nach Beitritt automatisch der Gruppe hinzufügen."
   }
 }

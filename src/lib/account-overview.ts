@@ -5,6 +5,8 @@ export type AccountCommunityRow = {
   name: string;
   slug: string | null;
   role: OrganizationRole;
+  /** Populated for students: group names in this organization (no roster). */
+  myGroups?: string[];
 };
 
 export type AccountOverviewPayload = {
