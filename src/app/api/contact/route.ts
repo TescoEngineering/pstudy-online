@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import nodemailer from "nodemailer";
+
+// nodemailer needs Node APIs (net/tls) — must not run on the Edge runtime.
+export const runtime = "nodejs";
 
 const MAX_MESSAGE = 8000;
 const MAX_SUBJECT = 200;
@@ -9,17 +13,27 @@ function bad(message: string, status = 400) {
 }
 
 /**
- * Sends help/contact form messages to the site operator via Resend.
- * Required env: RESEND_API_KEY, CONTACT_INBOX_EMAIL
- * Optional: CONTACT_FROM_EMAIL (must be a verified sender/domain in Resend; defaults for dev)
+ * Sends help/contact form messages to the site operator via the project's own
+ * SMTP server (Cloud86), authenticated as the contact mailbox. Because this is
+ * an authenticated submission, it is delivered locally into the inbox and
+ * bypasses the inbound spam blocklist (bl.cloud86-dnsbl.io) that was bouncing
+ * mail relayed via Resend/Amazon SES.
+ *
+ * User-facing auth emails (signup/login/reset) still go through Supabase+Resend —
+ * this route only changes how the contact form reaches contact@pstudy.be.
+ *
+ * Required env: SMTP_HOST, SMTP_USER, SMTP_PASS, CONTACT_INBOX_EMAIL
+ * Optional: SMTP_PORT (default 587), CONTACT_FROM_EMAIL (default SMTP_USER)
  */
 export async function POST(request: NextRequest) {
-  const apiKey = process.env.RESEND_API_KEY;
+  const host = process.env.SMTP_HOST?.trim();
+  const user = process.env.SMTP_USER?.trim();
+  const pass = process.env.SMTP_PASS;
+  const port = Number.parseInt(process.env.SMTP_PORT?.trim() || "587", 10);
   const inbox = process.env.CONTACT_INBOX_EMAIL?.trim();
-  const from =
-    process.env.CONTACT_FROM_EMAIL?.trim() || "PSTUDY Help <onboarding@resend.dev>";
+  const from = process.env.CONTACT_FROM_EMAIL?.trim() || user || "";
 
-  if (!apiKey || !inbox) {
+  if (!host || !user || !pass || !inbox) {
     return NextResponse.json(
       { error: "Contact is not configured on this server.", code: "not_configured" },
       { status: 503 }
@@ -71,28 +85,24 @@ export async function POST(request: NextRequest) {
     `— Sent via PSTUDY Help form`,
   ].join("\n");
 
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: [inbox],
-      reply_to: email,
-      subject,
-      text,
-    }),
+  const transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure: port === 465, // 465 = implicit TLS; 587 = STARTTLS
+    auth: { user, pass },
   });
 
-  const data = await res.json().catch(() => ({}));
-
-  if (!res.ok) {
+  try {
+    await transporter.sendMail({
+      from,
+      to: inbox,
+      replyTo: email,
+      subject,
+      text,
+    });
+  } catch (e) {
     const msg =
-      typeof data.message === "string"
-        ? data.message
-        : "Could not send message. Please try again later.";
+      e instanceof Error ? e.message : "Could not send message. Please try again later.";
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 
