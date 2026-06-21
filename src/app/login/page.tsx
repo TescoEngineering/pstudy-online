@@ -516,24 +516,13 @@ export default function LoginPage() {
               </button>
             </>
           ) : (
-            <>
-              {t("login.noAccountYet")}{" "}
-              <button
-                type="button"
-                onClick={() => setIsSignUp(true)}
-                className="text-pstudy-primary hover:underline"
-              >
-                {t("login.signUp")}
-              </button>
-              {" · "}
-              <button
-                type="button"
-                onClick={() => setForgotPassword(true)}
-                className="text-pstudy-primary hover:underline"
-              >
-                {t("login.forgotPassword")}
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={() => setForgotPassword(true)}
+              className="text-pstudy-primary hover:underline"
+            >
+              {t("login.forgotPassword")}
+            </button>
           )}
         </p>
 

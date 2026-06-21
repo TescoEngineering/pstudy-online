@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getPublicAppUrl } from "@/lib/deck-review";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 function bad(error: string, status = 400) {
@@ -24,6 +23,13 @@ function parseBetaCap(): number {
   return n;
 }
 
+/**
+ * Gate a private-beta signup: enforce the user cap (overflow -> waitlist) and
+ * record the signup. The auth account itself is created client-side via
+ * supabase.auth.signUp(), so that Supabase emails a 6-digit confirmation CODE
+ * rather than a consumable link (school/corporate IT pre-fetch and burn links).
+ * This route deliberately does NOT create the auth user.
+ */
 export async function POST(request: Request) {
   const admin = createAdminClient();
   if (!admin) return bad("SUPABASE_SERVICE_ROLE_KEY is missing", 500);
@@ -38,8 +44,7 @@ export async function POST(request: Request) {
   }
 
   const name = String(body.name ?? "").trim();
-  const emailRaw = String(body.email ?? "");
-  const email = normalizeEmail(emailRaw);
+  const email = normalizeEmail(String(body.email ?? ""));
   const useCase = body.use_case_note ? String(body.use_case_note).trim() : null;
   const accepted = body.accepted_beta_terms === true;
 
@@ -52,7 +57,15 @@ export async function POST(request: Request) {
     .select("*", { count: "exact", head: true });
   if (cErr) return bad(cErr.message, 500);
 
-  const isFull = (count ?? 0) >= cap;
+  // A returning email (already recorded) is let through even if the cap is now
+  // full — only brand-new emails count against the remaining slots.
+  const { data: existing } = await admin
+    .from("beta_signups")
+    .select("email")
+    .eq("email", email)
+    .maybeSingle();
+
+  const isFull = !existing && (count ?? 0) >= cap;
 
   if (isFull) {
     const { error: wErr } = await admin.from("waitlist").insert({
@@ -65,34 +78,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, status: "waitlist" as const, email });
   }
 
-  // Invite via Supabase auth (magic link / confirmation flow).
-  const appUrl = getPublicAppUrl(request);
-  const { data: inv, error: invErr } = await admin.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${appUrl}/auth/callback`,
-    data: {
-      name,
-      use_case_note: useCase,
-      signup_source: "beta",
-    },
-  });
-
-  const invErrMsg = String(invErr?.message ?? "").toLowerCase();
-  const userAlreadyExists =
-    !!invErr &&
-    (invErrMsg.includes("already") ||
-      invErrMsg.includes("registered") ||
-      invErrMsg.includes("exists"));
-
-  // If the user already exists, we still treat this as accepted.
-  if (invErr && !userAlreadyExists) {
-    return bad(invErr.message || "Could not create user", 500);
-  }
-
-  const userId = inv?.user?.id ?? null;
-
   const { error: bErr } = await admin.from("beta_signups").upsert(
     {
-      user_id: userId,
       email,
       name,
       use_case_note: useCase,
@@ -100,14 +87,7 @@ export async function POST(request: Request) {
     },
     { onConflict: "email" }
   );
-
   if (bErr) return bad(bErr.message, 500);
 
-  return NextResponse.json({
-    ok: true,
-    status: "accepted" as const,
-    email,
-    user_already_exists: userAlreadyExists,
-  });
+  return NextResponse.json({ ok: true, status: "accepted" as const, email });
 }
-
