@@ -185,7 +185,7 @@ export default function SignupPage() {
               ) : null}
               <button
                 type="button"
-                className="btn-primary w-full"
+                className="btn-primary w-full disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={submitting || !code.trim()}
                 onClick={verifyCode}
               >
@@ -295,7 +295,7 @@ export default function SignupPage() {
 
               <button
                 type="button"
-                className="btn-primary w-full"
+                className="btn-primary w-full disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={!canSubmit}
                 onClick={submit}
               >
