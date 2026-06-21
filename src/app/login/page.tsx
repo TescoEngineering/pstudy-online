@@ -62,6 +62,10 @@ export default function LoginPage() {
   const [resetSent, setResetSent] = useState(false);
   const [recoveryMode, setRecoveryMode] = useState(false);
   const [authLinkFailed, setAuthLinkFailed] = useState(false);
+  // Code-based confirm/reset (link-free for school email security). null when
+  // not in a code step; "signup" after sign-up; "reset" after a reset request.
+  const [codeMode, setCodeMode] = useState<null | "signup" | "reset">(null);
+  const [code, setCode] = useState("");
 
   const needsPasswordConfirmation = isSignUp || recoveryMode;
   const passwordMismatch =
@@ -104,12 +108,42 @@ export default function LoginPage() {
     const supabase = createClient();
 
     try {
-      if (forgotPassword) {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/auth/callback`,
+      if (codeMode) {
+        const otpType = codeMode === "signup" ? "signup" : "email";
+        const { error } = await supabase.auth.verifyOtp({
+          email,
+          token: code.trim(),
+          type: otpType,
         });
         if (error) throw error;
-        setResetSent(true);
+        if (codeMode === "signup") {
+          setCodeMode(null);
+          setCode("");
+          const next =
+            typeof window !== "undefined"
+              ? new URLSearchParams(window.location.search).get("next")
+              : null;
+          const dest =
+            next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+          router.push(dest);
+          router.refresh();
+        } else {
+          // reset: the code signed them in; let them set a new password.
+          setCodeMode(null);
+          setCode("");
+          setRecoveryMode(true);
+          setPassword("");
+          setConfirmPassword("");
+        }
+      } else if (forgotPassword) {
+        // Send a typed code instead of a link (school IT consumes links).
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: { shouldCreateUser: false },
+        });
+        if (error) throw error;
+        setForgotPassword(false);
+        setCodeMode("reset");
       } else if (recoveryMode) {
         if (passwordMismatch) {
           setError(t("login.passwordsDoNotMatch"));
@@ -131,10 +165,8 @@ export default function LoginPage() {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
         setError("");
-        toast.success(t("login.confirmEmail"));
-        setIsSignUp(false);
-        setPassword("");
-        setConfirmPassword("");
+        // Confirm via typed code instead of a link.
+        setCodeMode("signup");
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -152,6 +184,89 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleResend() {
+    setError("");
+    setLoading(true);
+    try {
+      const supabase = createClient();
+      if (codeMode === "reset") {
+        const { error } = await supabase.auth.signInWithOtp({
+          email,
+          options: { shouldCreateUser: false },
+        });
+        if (error) throw error;
+      } else if (codeMode === "signup") {
+        const { error } = await supabase.auth.resend({ type: "signup", email });
+        if (error) throw error;
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t("common.somethingWentWrong"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (codeMode) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-stone-50 px-4">
+        <Logo size="md" withText linkToHome className="mb-6" />
+        <div className="card w-full max-w-sm">
+          <h1 className="mb-2 text-xl font-bold text-stone-900">
+            {codeMode === "signup" ? t("login.confirmAccountTitle") : t("login.enterCode")}
+          </h1>
+          <p className="mb-6 text-sm text-stone-600">{t("login.codeSent", { email })}</p>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="code" className="mb-1 block text-sm text-stone-600">
+                {t("login.codeLabel")}
+              </label>
+              <input
+                id="code"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                required
+                className="w-full rounded-lg border border-stone-300 px-3 py-2 tracking-widest focus:border-pstudy-primary focus:outline-none focus:ring-1 focus:ring-pstudy-primary"
+                placeholder="123456"
+              />
+            </div>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <button
+              type="submit"
+              disabled={loading}
+              className="btn-primary w-full disabled:opacity-50"
+            >
+              {loading ? t("login.verifying") : t("login.verifyCode")}
+            </button>
+          </form>
+          <p className="mt-4 text-center text-sm text-stone-600">
+            <button
+              type="button"
+              onClick={() => void handleResend()}
+              className="text-pstudy-primary hover:underline"
+            >
+              {t("login.resendCode")}
+            </button>
+            {" · "}
+            <button
+              type="button"
+              onClick={() => {
+                setCodeMode(null);
+                setCode("");
+                setError("");
+              }}
+              className="text-pstudy-primary hover:underline"
+            >
+              {t("login.backToLogIn")}
+            </button>
+          </p>
+        </div>
+      </div>
+    );
   }
 
   if (recoveryMode) {
@@ -373,7 +488,7 @@ export default function LoginPage() {
             {loading
               ? t("login.pleaseWait")
               : forgotPassword
-                ? t("login.sendResetLink")
+                ? t("login.emailMeCode")
                 : isSignUp
                   ? t("login.signUp")
                   : t("login.logIn")}

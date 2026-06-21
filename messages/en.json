@@ -71,7 +71,16 @@
     "passwordUpdated": "Password updated. You can now log in.",
     "confirmEmail": "Check your email to confirm your account, then log in.",
     "authLinkInvalid": "The reset link could not be used (it may have expired, or your email app opened it without the full address). Request a new link with “Forgot password?” below, or open the link in Safari, Chrome, or Edge instead of the in-app email browser.",
-    "dismissHint": "Dismiss"
+    "dismissHint": "Dismiss",
+    "emailMeCode": "Email me a code",
+    "enterCode": "Enter your code",
+    "confirmAccountTitle": "Confirm your account",
+    "codeLabel": "6-digit code",
+    "codeSent": "We emailed a 6-digit code to {email}. Enter it below.",
+    "verifyCode": "Verify code",
+    "verifying": "Verifying...",
+    "resendCode": "Resend code",
+    "codeInvalid": "That code was invalid or expired. Request a new one."
   },
   "dashboard": {
     "myDecks": "My decks",
