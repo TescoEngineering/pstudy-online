@@ -66,7 +66,16 @@
     "passwordUpdated": "Passwort aktualisiert. Sie können sich jetzt anmelden.",
     "confirmEmail": "Prüfen Sie Ihre E-Mail, um Ihr Konto zu bestätigen, und melden Sie sich dann an.",
     "authLinkInvalid": "Der Zurücksetzen-Link konnte nicht verwendet werden (abgelaufen oder unvollständig geöffnet). Fordern Sie unten einen neuen Link an oder öffnen Sie den Link in Safari, Chrome oder Edge statt im E-Mail-In-App-Browser.",
-    "dismissHint": "Schließen"
+    "dismissHint": "Schließen",
+    "emailMeCode": "Code per E-Mail senden",
+    "enterCode": "Code eingeben",
+    "confirmAccountTitle": "Konto bestätigen",
+    "codeLabel": "6-stelliger Code",
+    "codeSent": "Wir haben einen 6-stelligen Code an {email} gesendet. Geben Sie ihn unten ein.",
+    "verifyCode": "Code bestätigen",
+    "verifying": "Wird überprüft...",
+    "resendCode": "Code erneut senden",
+    "codeInvalid": "Dieser Code war ungültig oder abgelaufen. Fordern Sie einen neuen an."
   },
   "dashboard": {
     "myDecks": "Meine Decks",

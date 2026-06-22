@@ -66,7 +66,16 @@
     "passwordUpdated": "Password aggiornata. Puoi ora accedere.",
     "confirmEmail": "Controlla la tua email per confermare il tuo account, poi accedi.",
     "authLinkInvalid": "Il link di reimpostazione non ha funzionato (scaduto o aperto senza l'indirizzo completo). Richiedine uno nuovo con « Password dimenticata? » sotto, oppure apri il link in Safari, Chrome o Edge invece che nel browser dell'app email.",
-    "dismissHint": "Chiudi"
+    "dismissHint": "Chiudi",
+    "emailMeCode": "Inviami un codice",
+    "enterCode": "Inserisci il codice",
+    "confirmAccountTitle": "Conferma il tuo account",
+    "codeLabel": "Codice a 6 cifre",
+    "codeSent": "Abbiamo inviato un codice a 6 cifre a {email}. Inseriscilo qui sotto.",
+    "verifyCode": "Verifica codice",
+    "verifying": "Verifica in corso...",
+    "resendCode": "Invia di nuovo il codice",
+    "codeInvalid": "Codice non valido o scaduto. Richiedine uno nuovo."
   },
   "dashboard": {
     "myDecks": "I miei mazzi",

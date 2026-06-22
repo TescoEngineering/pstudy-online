@@ -66,7 +66,16 @@
     "passwordUpdated": "Contraseña actualizada. Ya puedes iniciar sesión.",
     "confirmEmail": "Revisa tu correo para confirmar tu cuenta y luego inicia sesión.",
     "authLinkInvalid": "No se pudo usar el enlace de restablecimiento (caducó o el correo lo abrió sin la dirección completa). Solicita uno nuevo con «¿Olvidaste la contraseña?» abajo, o abre el enlace en Safari, Chrome o Edge en lugar del navegador integrado del correo.",
-    "dismissHint": "Cerrar"
+    "dismissHint": "Cerrar",
+    "emailMeCode": "Envíame un código",
+    "enterCode": "Introduce tu código",
+    "confirmAccountTitle": "Confirma tu cuenta",
+    "codeLabel": "Código de 6 dígitos",
+    "codeSent": "Enviamos un código de 6 dígitos a {email}. Introdúcelo a continuación.",
+    "verifyCode": "Verificar código",
+    "verifying": "Verificando...",
+    "resendCode": "Reenviar código",
+    "codeInvalid": "Ese código no es válido o ha caducado. Solicita uno nuevo."
   },
   "dashboard": {
     "myDecks": "Mis mazos",
